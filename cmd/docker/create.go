@@ -19,6 +19,7 @@ var (
 	flagOdooVersion string
 	flagModules     string
 	flagEnterprise  bool
+	flagWithoutDemo bool
 	flagPip         string
 	flagForce       bool
 )
@@ -35,6 +36,7 @@ func init() {
 	createCmd.Flags().StringVarP(&flagOdooVersion, "odoo-version", "v", "", "Odoo version (16.0, 17.0, 18.0, 19.0)")
 	createCmd.Flags().StringVarP(&flagModules, "modules", "m", "", "Modules to install (comma-separated)")
 	createCmd.Flags().BoolVarP(&flagEnterprise, "enterprise", "e", false, "Include Odoo Enterprise")
+	createCmd.Flags().BoolVar(&flagWithoutDemo, "without-demo", false, "Initialize without demo data")
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated)")
 	createCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "Overwrite existing configuration")
 }
@@ -100,6 +102,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ProjectRoot: ctx.Root,
 		Modules:     modules,
 		Enterprise:  flagEnterprise,
+		WithoutDemo: flagWithoutDemo,
 		PipPackages: pipPkgs,
 		Ports:       config.CalculatePorts(ctx.OdooVersion),
 		CreatedAt:   time.Now(),

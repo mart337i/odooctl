@@ -25,6 +25,7 @@ type State struct {
 	ProjectRoot string    `json:"project_root"`
 	Modules     []string  `json:"modules"`
 	Enterprise  bool      `json:"enterprise"`
+	WithoutDemo bool      `json:"without_demo"`
 	PipPackages []string  `json:"pip_packages"`
 	Ports       Ports     `json:"ports"`
 	CreatedAt   time.Time `json:"created_at"`

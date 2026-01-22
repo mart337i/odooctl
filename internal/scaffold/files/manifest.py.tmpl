@@ -1,0 +1,20 @@
+{
+    'name': "{{.Description}}",
+    'version': '{{.Version}}.1.0.0',
+    'license': 'LGPL-3',
+    'summary': "{{.Description}}",
+    'description': """
+        {{.Description}}
+    """,
+    'author': "{{.Author}}",
+    'category': 'Customizations',
+    'depends': [{{.Depends}}],
+    'data': [{{if .HasModels}}
+        'security/ir.model.access.csv',
+        'views/{{.ModuleName}}_views.xml',{{end}}
+    ],
+    'demo': [],
+    'installable': True,
+    'auto_install': False,
+    'application': False,
+}

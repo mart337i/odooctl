@@ -21,6 +21,7 @@ type Data struct {
 	DBName        string
 	ProjectRoot   string
 	InitModules   string
+	WithoutDemo   bool
 	PipPackages   string
 	Ports         config.Ports
 }
@@ -45,6 +46,7 @@ func NewData(state *config.State) Data {
 		DBName:        dbName,
 		ProjectRoot:   state.ProjectRoot,
 		InitModules:   strings.Join(modules, ","),
+		WithoutDemo:   state.WithoutDemo,
 		PipPackages:   pipPkgs,
 		Ports:         state.Ports,
 	}

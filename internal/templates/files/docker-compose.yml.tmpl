@@ -47,7 +47,7 @@ services:
     profiles:
       - init
     restart: "no"
-    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}", "--stop-after-init"]
+    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if .WithoutDemo}}, "--without-demo=all"{{end}}, "--stop-after-init"]
 
   odoo:
     <<: *odoo-common

@@ -14,4 +14,8 @@ func init() {
 	Cmd.AddCommand(statusCmd)
 	Cmd.AddCommand(logsCmd)
 	Cmd.AddCommand(resetCmd)
+	Cmd.AddCommand(installCmd)
+	Cmd.AddCommand(dbCmd)
+	Cmd.AddCommand(odooBinCmd)
+	Cmd.AddCommand(shellCmd)
 }

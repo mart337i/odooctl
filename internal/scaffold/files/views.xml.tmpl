@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- {{if .UseListTag}}List{{else}}Tree{{end}} View -->
+    <record id="{{.ModuleName}}_view_{{if .UseListTag}}list{{else}}tree{{end}}" model="ir.ui.view">
+        <field name="name">{{.ModelName}}.{{if .UseListTag}}list{{else}}tree{{end}}</field>
+        <field name="model">{{.ModelName}}</field>
+        <field name="arch" type="xml">
+            <{{if .UseListTag}}list{{else}}tree{{end}} string="{{.Description}}">
+                <field name="name"/>
+            </{{if .UseListTag}}list{{else}}tree{{end}}>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="{{.ModuleName}}_view_form" model="ir.ui.view">
+        <field name="name">{{.ModelName}}.form</field>
+        <field name="model">{{.ModelName}}</field>
+        <field name="arch" type="xml">
+            <form string="{{.Description}}">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="{{.ModuleName}}_view_search" model="ir.ui.view">
+        <field name="name">{{.ModelName}}.search</field>
+        <field name="model">{{.ModelName}}</field>
+        <field name="arch" type="xml">
+            <search string="{{.Description}}">
+                <field name="name"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="{{.ModuleName}}_action" model="ir.actions.act_window">
+        <field name="name">{{.Description}}</field>
+        <field name="res_model">{{.ModelName}}</field>
+        <field name="view_mode">{{if .UseListTag}}list{{else}}tree{{end}},form</field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="{{.ModuleName}}_menu_root"
+              name="{{.Description}}"
+              action="{{.ModuleName}}_action"
+              sequence="10"/>
+</odoo>

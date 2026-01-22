@@ -1,0 +1,9 @@
+from odoo import api, fields, models
+
+
+class {{.ClassName}}(models.Model):
+    _name = '{{.ModelName}}'
+    _description = '{{.Description}}'
+
+    name = fields.Char(string='Name', required=True)
+    active = fields.Boolean(default=True)

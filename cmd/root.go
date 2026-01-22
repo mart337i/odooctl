@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/egeskov/odooctl/cmd/docker"
+	"github.com/egeskov/odooctl/cmd/module"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,7 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(docker.Cmd)
+	rootCmd.AddCommand(module.Cmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
