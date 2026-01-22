@@ -1,0 +1,32 @@
+[options]
+db_host = db
+db_port = 5432
+db_user = odoo
+db_password = odoo
+
+http_port = 8069
+admin_passwd = admin
+data_dir = /var/lib/odoo
+
+addons_path = /usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+
+dev_mode = all
+log_level = info
+log_handler = :INFO
+workers = 0
+max_cron_threads = 0
+
+limit_memory_hard = 2684354560
+limit_memory_soft = 2147483648
+limit_request = 8192
+limit_time_cpu = 600
+limit_time_real = 1200
+
+smtp_server = mailhog
+smtp_port = 1025
+email_from = noreply@localhost
+
+server_wide_modules = base,web
+list_db = True
+proxy_mode = False
+dbfilter = ^{{.DBName}}$

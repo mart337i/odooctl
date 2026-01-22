@@ -1,0 +1,78 @@
+name: {{.VersionSuffix}}-{{.ProjectName}}
+x-odoo-common: &odoo-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: odoo-dev:{{.OdooVersion}}
+
+  depends_on:
+    db:
+      condition: service_healthy
+  environment:
+    HOST: db
+    PORT: 5432
+    USER: odoo
+    PASSWORD: odoo
+  volumes:
+    - {{.ProjectRoot}}:/mnt/extra-addons
+    - ./odoo.conf:/etc/odoo/odoo.conf:ro
+    - odoo-filestore-{{.VersionSuffix}}:/var/lib/odoo/filestore
+    - odoo-sessions-{{.VersionSuffix}}:/var/lib/odoo/.local/share/Odoo/sessions
+  networks:
+    - odoo-network-{{.VersionSuffix}}
+
+services:
+  db:
+    image: postgres:15
+    container_name: odoo-db-{{.VersionSuffix}}-{{.ProjectName}}
+    environment:
+      POSTGRES_DB: {{.DBName}}
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - odoo-postgres-data-{{.VersionSuffix}}:/var/lib/postgresql/data/pgdata
+    networks:
+      - odoo-network-{{.VersionSuffix}}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d {{.DBName}}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  odoo-init:
+    <<: *odoo-common
+    container_name: odoo-init-{{.VersionSuffix}}-{{.ProjectName}}
+    profiles:
+      - init
+    restart: "no"
+    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}", "--stop-after-init"]
+
+  odoo:
+    <<: *odoo-common
+    container_name: odoo-app-{{.VersionSuffix}}-{{.ProjectName}}
+    restart: "no"
+    ports:
+      - "{{.Ports.Odoo}}:8069"
+      - "{{.Ports.Debug}}:5678"
+    command: ["-c", "/etc/odoo/odoo.conf"]
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: odoo-mailhog-{{.VersionSuffix}}-{{.ProjectName}}
+    networks:
+      - odoo-network-{{.VersionSuffix}}
+    restart: unless-stopped
+    ports:
+      - "{{.Ports.Mailhog}}:8025"
+      - "{{.Ports.SMTP}}:1025"
+
+networks:
+  odoo-network-{{.VersionSuffix}}:
+    driver: bridge
+
+volumes:
+  odoo-postgres-data-{{.VersionSuffix}}:
+  odoo-filestore-{{.VersionSuffix}}:
+  odoo-sessions-{{.VersionSuffix}}:
