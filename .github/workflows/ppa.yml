@@ -1,0 +1,44 @@
+name: Build Debian Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distro: [jammy, noble]
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts debhelper golang-go
+
+      - name: Update changelog for distro
+        run: |
+          VERSION=$(git describe --tags --always | sed 's/^v//')
+          sed -i "s/) jammy;/) ${{ matrix.distro }};/" debian/changelog
+          sed -i "s/^odooctl ([^)]*)/odooctl (${VERSION})/" debian/changelog
+
+      - name: Vendor Go dependencies
+        run: |
+          go mod vendor
+
+      - name: Build package
+        run: |
+          dpkg-buildpackage -us -uc -b
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: odooctl-${{ matrix.distro }}
+          path: ../odooctl_*.deb

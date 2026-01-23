@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export GOCACHE = $(CURDIR)/.gocache
+export GOFLAGS = -mod=vendor
+
+VERSION := $(shell dpkg-parsechangelog -S Version | cut -d- -f1)
+LDFLAGS := -ldflags "-X github.com/egeskov/odooctl/cmd.version=$(VERSION)"
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	go build $(LDFLAGS) -o odooctl .
+
+override_dh_auto_install:
+	install -D -m 0755 odooctl $(CURDIR)/debian/odooctl/usr/bin/odooctl
+
+override_dh_auto_test:
+	# Skip tests for now

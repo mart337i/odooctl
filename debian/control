@@ -1,0 +1,25 @@
+Source: odooctl
+Section: devel
+Priority: optional
+Maintainer: egeskov <egeskov@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 1.22)
+Standards-Version: 4.6.0
+Homepage: https://github.com/egeskov/odooctl
+Vcs-Browser: https://github.com/egeskov/odooctl
+Vcs-Git: https://github.com/egeskov/odooctl.git
+Rules-Requires-Root: no
+
+Package: odooctl
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, docker-compose | docker-compose-v2
+Recommends: docker.io
+Description: CLI tool for managing Odoo Docker development environments
+ odooctl is a command-line tool that simplifies the creation and management
+ of Odoo development environments using Docker.
+ .
+ Features:
+  - Docker environment management (create, run, stop, reset, status, logs)
+  - Module scaffolding and installation
+  - Multi-environment support per project
+  - Auto-discovery of Python dependencies from manifests
+  - Port conflict detection and auto-resolution

@@ -1,0 +1,11 @@
+odooctl (0.1.0-1) jammy; urgency=medium
+
+  * Initial release
+  * Docker environment management (create, run, stop, reset, status, logs)
+  * Module scaffolding and installation
+  * Multi-environment support per project
+  * Auto-discovery of Python dependencies from manifests
+  * Port conflict detection and auto-resolution
+  * Interactive prompts for first-time build and database initialization
+
+ -- egeskov <egeskov@users.noreply.github.com>  Sat, 24 Jan 2026 12:00:00 +0000
