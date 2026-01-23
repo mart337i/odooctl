@@ -53,7 +53,7 @@ func runScaffold(cmd *cobra.Command, args []string) error {
 
 	// Check if directory already exists
 	if _, err := os.Stat(moduleName); err == nil {
-		return fmt.Errorf("directory %q already exists", moduleName)
+		return fmt.Errorf("Module %q already exists", moduleName)
 	}
 
 	// Detect Odoo version from context

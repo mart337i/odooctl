@@ -64,7 +64,7 @@ func runEdit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid file. Choose from: %s", strings.Join(validKeys, ", "))
 	}
 
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return err
 	}

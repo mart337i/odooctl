@@ -51,6 +51,28 @@ func ProjectDir(projectName string) (string, error) {
 	return filepath.Join(configDir, projectName), nil
 }
 
+// EnvironmentDir returns ~/.odooctl/{project}/{branch}
+// This allows multiple environments per project (e.g., different branches or named environments)
+func EnvironmentDir(projectName, branch string) (string, error) {
+	projectDir, err := ProjectDir(projectName)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(projectDir, branch), nil
+}
+
+// EnvironmentExists checks if an environment already exists
+func EnvironmentExists(projectName, branch string) bool {
+	dir, err := EnvironmentDir(projectName, branch)
+	if err != nil {
+		return false
+	}
+
+	statePath := filepath.Join(dir, StateFileName)
+	_, err = os.Stat(statePath)
+	return err == nil
+}
+
 // CalculatePorts calculates ports based on Odoo version
 func CalculatePorts(version string) Ports {
 	// Parse major version (e.g., "17.0" -> 17)
@@ -117,9 +139,9 @@ func FindAvailablePorts(version string) Ports {
 	return base
 }
 
-// Save writes state to the project directory
+// Save writes state to the environment directory
 func (s *State) Save() error {
-	dir, err := ProjectDir(s.ProjectName)
+	dir, err := EnvironmentDir(s.ProjectName, s.Branch)
 	if err != nil {
 		return err
 	}
@@ -136,9 +158,9 @@ func (s *State) Save() error {
 	return os.WriteFile(filepath.Join(dir, StateFileName), data, 0644)
 }
 
-// Load reads state from the project directory
-func Load(projectName string) (*State, error) {
-	dir, err := ProjectDir(projectName)
+// Load reads state from the environment directory
+func Load(projectName, branch string) (*State, error) {
+	dir, err := EnvironmentDir(projectName, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -157,30 +179,45 @@ func Load(projectName string) (*State, error) {
 }
 
 // LoadFromDir tries to find state by looking for .odooctl-state.json in project dir
+// It searches through ~/.odooctl/{project}/{branch}/ directories
 func LoadFromDir(dir string) (*State, error) {
-	// First check if there's a state file that references this directory
 	configDir, err := ConfigDir()
 	if err != nil {
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(configDir)
+	// Iterate over project directories
+	projectEntries, err := os.ReadDir(configDir)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, projectEntry := range projectEntries {
+		if !projectEntry.IsDir() {
 			continue
 		}
 
-		state, err := Load(entry.Name())
+		projectDir := filepath.Join(configDir, projectEntry.Name())
+
+		// Iterate over branch/environment directories within each project
+		branchEntries, err := os.ReadDir(projectDir)
 		if err != nil {
 			continue
 		}
 
-		if state.ProjectRoot == dir {
-			return state, nil
+		for _, branchEntry := range branchEntries {
+			if !branchEntry.IsDir() {
+				continue
+			}
+
+			state, err := Load(projectEntry.Name(), branchEntry.Name())
+			if err != nil {
+				continue
+			}
+
+			if state.ProjectRoot == dir {
+				return state, nil
+			}
 		}
 	}
 

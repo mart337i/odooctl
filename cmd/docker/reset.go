@@ -77,9 +77,9 @@ func runReset(cmd *cobra.Command, args []string) error {
 	}
 	docker.Compose(state, downArgs...)
 
-	// Remove project directory if requested
+	// Remove environment directory if requested
 	if flagResetFiles {
-		dir, err := config.ProjectDir(state.ProjectName)
+		dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 		if err != nil {
 			return err
 		}

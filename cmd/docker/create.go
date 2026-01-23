@@ -27,7 +27,6 @@ var (
 	flagPip             string
 	flagAddonsPaths     []string
 	flagAutoDiscoverPip bool
-	flagForce           bool
 )
 
 var createCmd = &cobra.Command{
@@ -38,7 +37,7 @@ var createCmd = &cobra.Command{
 }
 
 func init() {
-	createCmd.Flags().StringVarP(&flagName, "name", "n", "", "Project name (default: directory name)")
+	createCmd.Flags().StringVarP(&flagName, "name", "n", "", "Environment name (used as subdirectory, allows multiple environments per project)")
 	createCmd.Flags().StringVarP(&flagOdooVersion, "odoo-version", "v", "", "Odoo version ("+odoo.VersionsString()+")")
 	createCmd.Flags().StringVarP(&flagModules, "modules", "m", "", "Modules to install (comma-separated)")
 	createCmd.Flags().BoolVarP(&flagEnterprise, "enterprise", "e", false, "Include Odoo Enterprise")
@@ -46,7 +45,6 @@ func init() {
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated or path to requirements.txt)")
 	createCmd.Flags().StringArrayVarP(&flagAddonsPaths, "addons-path", "a", nil, "Additional addons directories (can specify multiple times)")
 	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", true, "Auto-discover Python dependencies from manifests")
-	createCmd.Flags().BoolVarP(&flagForce, "force", "f", false, "Overwrite existing configuration")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -58,10 +56,24 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Detect project context
 	ctx := project.Detect(cwd)
 
-	// Override with flags
-	if flagName != "" {
-		ctx.Name = flagName
+	// Handle --name flag based on git repo context
+	// In git repo: --name overrides project name (existing behavior preserved for backwards compat)
+	// Outside git repo: --name sets the environment name (branch), allowing multiple environments
+	if ctx.IsGitRepo {
+		// In git repo: branch comes from git, --name can override project name
+		if flagName != "" {
+			ctx.Name = flagName
+		}
+	} else {
+		// Outside git repo: --name sets the environment name
+		// Default to project name if --name not provided (creates projectname/projectname)
+		if flagName != "" {
+			ctx.Branch = flagName
+		} else {
+			ctx.Branch = ctx.Name
+		}
 	}
+
 	if flagOdooVersion != "" {
 		ctx.OdooVersion = flagOdooVersion
 	}
@@ -75,12 +87,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		ctx.OdooVersion = version
 	}
 
-	// Check if project already exists
-	if !flagForce {
-		dir, _ := config.ProjectDir(ctx.Name)
-		if _, err := os.Stat(dir); err == nil {
-			return fmt.Errorf("project %q already exists. Use --force to overwrite", ctx.Name)
-		}
+	// Check for existing environment
+	if config.EnvironmentExists(ctx.Name, ctx.Branch) {
+		return fmt.Errorf("environment '%s/%s' already exists. Use a different --name or remove the existing environment with 'odooctl docker reset'", ctx.Name, ctx.Branch)
 	}
 
 	// Parse modules
@@ -117,6 +126,18 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		scanDirs = append(scanDirs, addonsPaths...)
 		discoveredPkgs := discoverPythonDeps(scanDirs, pipPkgs)
 		pipPkgs = append(pipPkgs, discoveredPkgs...)
+	}
+
+	branchOrVersion := ctx.Branch
+	if branchOrVersion == "" {
+		branchOrVersion = ctx.OdooVersion
+	}
+
+	dockerRoot := filepath.Join(ctx.Root, ctx.Name, branchOrVersion, "docker")
+
+	// Ensure directory exists
+	if err := os.MkdirAll(dockerRoot, 0755); err != nil {
+		return fmt.Errorf("failed to create docker directory: %w", err)
 	}
 
 	// Build state
@@ -158,11 +179,12 @@ func printCreateSummary(state *config.State) {
 	fmt.Println()
 	fmt.Printf("%s Docker environment created!\n\n", green("✓"))
 	fmt.Printf("  Project:     %s\n", cyan(state.ProjectName))
+	fmt.Printf("  Environment: %s\n", cyan(state.Branch))
 	fmt.Printf("  Odoo:        %s\n", cyan(state.OdooVersion))
 	fmt.Printf("  Port:        %s\n", cyan(fmt.Sprintf("http://localhost:%d", state.Ports.Odoo)))
 	fmt.Printf("  Mailhog:     %s\n", cyan(fmt.Sprintf("http://localhost:%d", state.Ports.Mailhog)))
 
-	dir, _ := config.ProjectDir(state.ProjectName)
+	dir, _ := config.EnvironmentDir(state.ProjectName, state.Branch)
 	fmt.Printf("  Files:       %s\n", cyan(dir))
 
 	if len(state.AddonsPaths) > 0 {

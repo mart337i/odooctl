@@ -13,7 +13,7 @@ import (
 
 // Compose runs docker compose commands
 func Compose(state *config.State, args ...string) error {
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func Compose(state *config.State, args ...string) error {
 
 // ComposeOutput runs docker compose and returns output
 func ComposeOutput(state *config.State, args ...string) (string, error) {
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return "", err
 	}

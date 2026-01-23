@@ -27,7 +27,7 @@ func runPath(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
 
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return err
 	}

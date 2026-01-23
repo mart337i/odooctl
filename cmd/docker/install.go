@@ -275,7 +275,7 @@ func getDBName(state *config.State) string {
 }
 
 func hashFilePath(state *config.State) (string, error) {
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return "", err
 	}

@@ -56,9 +56,9 @@ func NewData(state *config.State) Data {
 	}
 }
 
-// Render generates all Docker files to the project directory
+// Render generates all Docker files to the environment directory
 func Render(state *config.State) error {
-	dir, err := config.ProjectDir(state.ProjectName)
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 	if err != nil {
 		return err
 	}

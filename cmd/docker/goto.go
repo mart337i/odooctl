@@ -54,38 +54,50 @@ func runGoto(cmd *cobra.Command, args []string) error {
 		currentProject = state.ProjectName
 	}
 
-	// Scan for projects
-	entries, err := os.ReadDir(configDir)
+	// Scan for projects (new structure: ~/.odooctl/{project}/{branch}/)
+	projectEntries, err := os.ReadDir(configDir)
 	if err != nil {
 		return fmt.Errorf("no projects found")
 	}
 
 	var projects []projectInfo
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	for _, projectEntry := range projectEntries {
+		if !projectEntry.IsDir() {
 			continue
 		}
 
-		statePath := filepath.Join(configDir, entry.Name(), config.StateFileName)
-		data, err := os.ReadFile(statePath)
+		projectDir := filepath.Join(configDir, projectEntry.Name())
+		branchEntries, err := os.ReadDir(projectDir)
 		if err != nil {
 			continue
 		}
 
-		var state config.State
-		if err := json.Unmarshal(data, &state); err != nil {
-			continue
-		}
+		for _, branchEntry := range branchEntries {
+			if !branchEntry.IsDir() {
+				continue
+			}
 
-		projects = append(projects, projectInfo{
-			Name:        state.ProjectName,
-			Path:        filepath.Join(configDir, entry.Name()),
-			Branch:      state.Branch,
-			Version:     state.OdooVersion,
-			IsCurrent:   state.ProjectName == currentProject,
-			ProjectRoot: state.ProjectRoot,
-		})
+			statePath := filepath.Join(projectDir, branchEntry.Name(), config.StateFileName)
+			data, err := os.ReadFile(statePath)
+			if err != nil {
+				continue
+			}
+
+			var state config.State
+			if err := json.Unmarshal(data, &state); err != nil {
+				continue
+			}
+
+			projects = append(projects, projectInfo{
+				Name:        state.ProjectName,
+				Path:        filepath.Join(projectDir, branchEntry.Name()),
+				Branch:      state.Branch,
+				Version:     state.OdooVersion,
+				IsCurrent:   state.ProjectName == currentProject && state.Branch == branchEntry.Name(),
+				ProjectRoot: state.ProjectRoot,
+			})
+		}
 	}
 
 	if len(projects) == 0 {
@@ -112,10 +124,11 @@ func runGoto(cmd *cobra.Command, args []string) error {
 			projectRoot = strings.Replace(projectRoot, home, "~", 1)
 		}
 
-		fmt.Printf("%s%d. %s %s %s\n",
+		fmt.Printf("%s%d. %s/%s %s %s\n",
 			marker,
 			i+1,
 			cyan(p.Name),
+			cyan(p.Branch),
 			dim(fmt.Sprintf("(Odoo %s)", p.Version)),
 			dim(projectRoot),
 		)
