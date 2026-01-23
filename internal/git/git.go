@@ -4,6 +4,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/egeskov/odooctl/internal/odoo"
 )
 
 // Info contains git repository information
@@ -44,8 +46,7 @@ func Detect(dir string) Info {
 // VersionFromBranch extracts Odoo version from branch name
 // e.g., "17.0" -> "17.0", "17.0-feature" -> "17.0"
 func VersionFromBranch(branch string) string {
-	versions := []string{"19.0", "18.0", "17.0", "16.0"}
-	for _, v := range versions {
+	for _, v := range odoo.OdooVersions {
 		if strings.HasPrefix(branch, v) {
 			return v
 		}

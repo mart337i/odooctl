@@ -10,6 +10,7 @@ import (
 
 	"github.com/egeskov/odooctl/internal/config"
 	"github.com/egeskov/odooctl/internal/module"
+	"github.com/egeskov/odooctl/internal/odoo"
 	"github.com/egeskov/odooctl/internal/project"
 	"github.com/egeskov/odooctl/internal/templates"
 	"github.com/egeskov/odooctl/pkg/prompt"
@@ -38,7 +39,7 @@ var createCmd = &cobra.Command{
 
 func init() {
 	createCmd.Flags().StringVarP(&flagName, "name", "n", "", "Project name (default: directory name)")
-	createCmd.Flags().StringVarP(&flagOdooVersion, "odoo-version", "v", "", "Odoo version (16.0, 17.0, 18.0, 19.0)")
+	createCmd.Flags().StringVarP(&flagOdooVersion, "odoo-version", "v", "", "Odoo version ("+odoo.VersionsString()+")")
 	createCmd.Flags().StringVarP(&flagModules, "modules", "m", "", "Modules to install (comma-separated)")
 	createCmd.Flags().BoolVarP(&flagEnterprise, "enterprise", "e", false, "Include Odoo Enterprise")
 	createCmd.Flags().BoolVar(&flagWithoutDemo, "without-demo", false, "Initialize without demo data")

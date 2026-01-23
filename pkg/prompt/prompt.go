@@ -2,17 +2,17 @@ package prompt
 
 import (
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/egeskov/odooctl/internal/odoo"
 )
 
 // SelectVersion prompts user to select an Odoo version
 func SelectVersion() (string, error) {
-	versions := []string{"19.0", "18.0", "17.0", "16.0"}
 	var selected string
 
 	prompt := &survey.Select{
 		Message: "Select Odoo version:",
-		Options: versions,
-		Default: "18.0",
+		Options: odoo.OdooVersions,
+		Default: odoo.DefaultOdooVersion,
 	}
 
 	err := survey.AskOne(prompt, &selected)

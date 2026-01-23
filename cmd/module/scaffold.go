@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/egeskov/odooctl/internal/odoo"
 	"github.com/egeskov/odooctl/internal/project"
 	"github.com/egeskov/odooctl/internal/scaffold"
 	"github.com/egeskov/odooctl/pkg/prompt"
@@ -36,7 +37,7 @@ Examples:
 
 func init() {
 	scaffoldCmd.Flags().StringVarP(&flagAuthor, "author", "a", "", "Module author")
-	scaffoldCmd.Flags().StringVarP(&flagVersion, "odoo-version", "v", "", "Odoo version (e.g., 18.0)")
+	scaffoldCmd.Flags().StringVarP(&flagVersion, "odoo-version", "v", "", "Odoo version ("+odoo.VersionsString()+")")
 	scaffoldCmd.Flags().StringVarP(&flagDepends, "depends", "d", "base", "Dependencies (comma-separated)")
 	scaffoldCmd.Flags().StringVar(&flagDescription, "description", "", "Module description")
 	scaffoldCmd.Flags().BoolVarP(&flagWithModel, "model", "m", false, "Include a model with the same name")
