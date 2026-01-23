@@ -7,13 +7,13 @@ A CLI tool for managing Odoo Docker development environments. Written in Go for 
 ### Quick Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/egeskov/odooctl/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mart337i/odooctl/main/install.sh | bash
 ```
 
 ### Ubuntu/Debian (PPA)
 
 ```bash
-sudo add-apt-repository ppa:egeskov/odooctl
+sudo add-apt-repository ppa:mart337i/odooctl
 sudo apt update
 sudo apt install odooctl
 ```
@@ -21,17 +21,17 @@ sudo apt install odooctl
 ### Using Go
 
 ```bash
-go install github.com/egeskov/odooctl@latest
+go install github.com/mart337i/odooctl@latest
 ```
 
 ### Download Binary
 
-Download the latest release from [GitHub Releases](https://github.com/egeskov/odooctl/releases) and add it to your PATH.
+Download the latest release from [GitHub Releases](https://github.com/mart337i/odooctl/releases) and add it to your PATH.
 
 ### Build from Source
 
 ```bash
-git clone https://github.com/egeskov/odooctl.git
+git clone https://github.com/mart337i/odooctl.git
 cd odooctl
 make install
 ```

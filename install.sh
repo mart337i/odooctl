@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="egeskov/odooctl"
+REPO="mart337i/odooctl"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="odooctl"
 
