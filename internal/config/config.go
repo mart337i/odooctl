@@ -19,18 +19,20 @@ type Ports struct {
 }
 
 type State struct {
-	ProjectName string    `json:"project_name"`
-	OdooVersion string    `json:"odoo_version"`
-	Branch      string    `json:"branch"`
-	IsGitRepo   bool      `json:"is_git_repo"`
-	ProjectRoot string    `json:"project_root"`
-	Modules     []string  `json:"modules"`
-	Enterprise  bool      `json:"enterprise"`
-	WithoutDemo bool      `json:"without_demo"`
-	PipPackages []string  `json:"pip_packages"`
-	AddonsPaths []string  `json:"addons_paths"`
-	Ports       Ports     `json:"ports"`
-	CreatedAt   time.Time `json:"created_at"`
+	ProjectName   string     `json:"project_name"`
+	OdooVersion   string     `json:"odoo_version"`
+	Branch        string     `json:"branch"`
+	IsGitRepo     bool       `json:"is_git_repo"`
+	ProjectRoot   string     `json:"project_root"`
+	Modules       []string   `json:"modules"`
+	Enterprise    bool       `json:"enterprise"`
+	WithoutDemo   bool       `json:"without_demo"`
+	PipPackages   []string   `json:"pip_packages"`
+	AddonsPaths   []string   `json:"addons_paths"`
+	Ports         Ports      `json:"ports"`
+	CreatedAt     time.Time  `json:"created_at"`
+	InitializedAt *time.Time `json:"initialized_at,omitempty"` // When database was first initialized with -i
+	BuiltAt       *time.Time `json:"built_at,omitempty"`       // When containers were first built with --build
 }
 
 // ConfigDir returns ~/.odooctl

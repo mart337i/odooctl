@@ -52,7 +52,7 @@ func runReset(cmd *cobra.Command, args []string) error {
 
 	// Confirm if removing data
 	if (flagResetVolumes || flagResetFiles) && !flagResetYes {
-		msg := fmt.Sprintf("This will delete containers")
+		msg := "This will delete containers"
 		if flagResetVolumes {
 			msg += ", volumes (database)"
 		}

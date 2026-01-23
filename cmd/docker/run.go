@@ -4,18 +4,21 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/egeskov/odooctl/internal/config"
 	"github.com/egeskov/odooctl/internal/docker"
 	"github.com/egeskov/odooctl/internal/templates"
+	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 var (
-	flagRunBuild  bool
-	flagRunInit   bool
-	flagRunDetach bool
+	flagRunBuild    bool
+	flagRunInit     bool
+	flagRunDetach   bool
+	flagRunNoPrompt bool
 )
 
 var runCmd = &cobra.Command{
@@ -36,6 +39,7 @@ func init() {
 	runCmd.Flags().BoolVarP(&flagRunBuild, "build", "b", false, "Rebuild containers before starting")
 	runCmd.Flags().BoolVarP(&flagRunInit, "init", "i", false, "Initialize database before starting")
 	runCmd.Flags().BoolVarP(&flagRunDetach, "detach", "d", true, "Run in background")
+	runCmd.Flags().BoolVar(&flagRunNoPrompt, "no-prompt", false, "Skip interactive prompts (for CI/automation)")
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -70,6 +74,32 @@ func runRun(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s Files regenerated with new ports\n", green("✓"))
 	}
 
+	// Prompt for build if never done before
+	if state.BuiltAt == nil && !flagRunBuild && !flagRunNoPrompt {
+		shouldBuild, err := prompt.Confirm("Docker images have never been built. Build now?", true)
+		if err != nil {
+			return err
+		}
+		if shouldBuild {
+			flagRunBuild = true
+		} else {
+			fmt.Printf("%s Skipping build. Containers may fail if images don't exist.\n", yellow("⚠️"))
+		}
+	}
+
+	// Prompt for init if never done before
+	if state.InitializedAt == nil && !flagRunInit && !flagRunNoPrompt {
+		shouldInit, err := prompt.Confirm("Database has never been initialized. Initialize now?", true)
+		if err != nil {
+			return err
+		}
+		if shouldInit {
+			flagRunInit = true
+		} else {
+			fmt.Printf("%s Skipping initialization. Odoo may not start correctly.\n", yellow("⚠️"))
+		}
+	}
+
 	// Initialize if requested
 	if flagRunInit {
 		fmt.Println("Initializing database...")
@@ -100,6 +130,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 		sql := "INSERT INTO ir_config_parameter (key, value) VALUES ('report.url', 'http://odoo:8069') ON CONFLICT (key) DO UPDATE SET value = 'http://odoo:8069';"
 		docker.Compose(state, "exec", "-T", "db", "psql", "-U", "odoo", "-d", getDBName(state), "-c", sql)
 
+		// Track that initialization has been done
+		if state.InitializedAt == nil {
+			now := time.Now()
+			state.InitializedAt = &now
+			if err := state.Save(); err != nil {
+				return fmt.Errorf("failed to save state: %w", err)
+			}
+		}
+
 		fmt.Printf("%s Database initialized\n\n", green("✓"))
 	}
 
@@ -116,6 +155,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	if err := docker.Compose(state, upArgs...); err != nil {
 		return fmt.Errorf("failed to start containers: %w", err)
+	}
+
+	// Track that build has been done
+	if flagRunBuild && state.BuiltAt == nil {
+		now := time.Now()
+		state.BuiltAt = &now
+		if err := state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
 	}
 
 	if flagRunDetach {
