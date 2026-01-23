@@ -4,11 +4,21 @@ A CLI tool for managing Odoo Docker development environments. Written in Go for 
 
 ## Installation
 
-```bash
-# Build from source
-make build
+### Using Go (recommended)
 
-# Or install to GOPATH/bin
+```bash
+go install github.com/egeskov/odooctl@latest
+```
+
+### Download Binary
+
+Download the latest release from [GitHub Releases](https://github.com/egeskov/odooctl/releases) and add it to your PATH.
+
+### Build from Source
+
+```bash
+git clone https://github.com/egeskov/odooctl.git
+cd odooctl
 make install
 ```
 
