@@ -22,7 +22,9 @@ type Data struct {
 	ProjectRoot   string
 	InitModules   string
 	WithoutDemo   bool
+	Enterprise    bool
 	PipPackages   string
+	AddonsPaths   []string
 	Ports         config.Ports
 }
 
@@ -47,7 +49,9 @@ func NewData(state *config.State) Data {
 		ProjectRoot:   state.ProjectRoot,
 		InitModules:   strings.Join(modules, ","),
 		WithoutDemo:   state.WithoutDemo,
+		Enterprise:    state.Enterprise,
 		PipPackages:   pipPkgs,
+		AddonsPaths:   state.AddonsPaths,
 		Ports:         state.Ports,
 	}
 }

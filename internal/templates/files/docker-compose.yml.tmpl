@@ -3,7 +3,11 @@ x-odoo-common: &odoo-common
   build:
     context: .
     dockerfile: Dockerfile
-  image: odoo-dev:{{.OdooVersion}}
+{{- if .Enterprise}}
+    ssh:
+      - default
+{{- end}}
+  image: odoo-dev:{{.OdooVersion}}{{if .Enterprise}}-enterprise{{end}}
 
   depends_on:
     db:
@@ -18,6 +22,12 @@ x-odoo-common: &odoo-common
     - ./odoo.conf:/etc/odoo/odoo.conf:ro
     - odoo-filestore-{{.VersionSuffix}}:/var/lib/odoo/filestore
     - odoo-sessions-{{.VersionSuffix}}:/var/lib/odoo/.local/share/Odoo/sessions
+{{- range $i, $path := .AddonsPaths}}
+    - {{$path}}:/mnt/custom-addons-{{$i}}:ro
+{{- end}}
+{{- if .Enterprise}}
+    - ./enterprise:/mnt/enterprise:ro
+{{- end}}
   networks:
     - odoo-network-{{.VersionSuffix}}
 
@@ -48,6 +58,14 @@ services:
       - init
     restart: "no"
     command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if .WithoutDemo}}, "--without-demo=all"{{end}}, "--stop-after-init"]
+
+  odoo-update:
+    <<: *odoo-common
+    container_name: odoo-update-{{.VersionSuffix}}-{{.ProjectName}}
+    profiles:
+      - update
+    restart: "no"
+    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-u", "all", "--stop-after-init"]
 
   odoo:
     <<: *odoo-common

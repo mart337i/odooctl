@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,6 +28,7 @@ type State struct {
 	Enterprise  bool      `json:"enterprise"`
 	WithoutDemo bool      `json:"without_demo"`
 	PipPackages []string  `json:"pip_packages"`
+	AddonsPaths []string  `json:"addons_paths"`
 	Ports       Ports     `json:"ports"`
 	CreatedAt   time.Time `json:"created_at"`
 }
@@ -64,6 +66,55 @@ func CalculatePorts(version string) Ports {
 		SMTP:    1000 + (major * 100) + 25, // e.g., 1725
 		Debug:   5000 + (major * 100) + 78, // e.g., 5778
 	}
+}
+
+// IsPortAvailable checks if a port is available on localhost
+func IsPortAvailable(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	listener.Close()
+	return true
+}
+
+// CheckPortsAvailable checks if all ports are available
+func (p Ports) CheckPortsAvailable() (bool, []int) {
+	var conflicting []int
+	ports := []int{p.Odoo, p.Mailhog, p.SMTP, p.Debug}
+
+	for _, port := range ports {
+		if !IsPortAvailable(port) {
+			conflicting = append(conflicting, port)
+		}
+	}
+
+	return len(conflicting) == 0, conflicting
+}
+
+// FindAvailablePorts finds available ports starting from calculated ports
+func FindAvailablePorts(version string) Ports {
+	base := CalculatePorts(version)
+
+	// Try to find available ports, incrementing by 10 if conflict
+	for i := 0; i < 10; i++ {
+		offset := i * 10
+		candidate := Ports{
+			Odoo:    base.Odoo + offset,
+			Mailhog: base.Mailhog + offset,
+			SMTP:    base.SMTP + offset,
+			Debug:   base.Debug + offset,
+		}
+
+		available, _ := candidate.CheckPortsAvailable()
+		if available {
+			return candidate
+		}
+	}
+
+	// Fall back to base if we couldn't find available ports
+	return base
 }
 
 // Save writes state to the project directory

@@ -8,7 +8,7 @@ http_port = 8069
 admin_passwd = admin
 data_dir = /var/lib/odoo
 
-addons_path = /usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons
+addons_path = /usr/lib/python3/dist-packages/odoo/addons,/mnt/extra-addons{{range $i, $path := .AddonsPaths}},/mnt/custom-addons-{{$i}}{{end}}{{if .Enterprise}},/mnt/enterprise{{end}}
 
 dev_mode = all
 log_level = info

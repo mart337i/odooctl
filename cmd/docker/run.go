@@ -7,6 +7,7 @@ import (
 
 	"github.com/egeskov/odooctl/internal/config"
 	"github.com/egeskov/odooctl/internal/docker"
+	"github.com/egeskov/odooctl/internal/templates"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -45,6 +46,29 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	green := color.New(color.FgGreen).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	// Check for port conflicts
+	available, conflicting := state.Ports.CheckPortsAvailable()
+	if !available {
+		fmt.Printf("%s Port conflict detected: %v\n", yellow("⚠️"), conflicting)
+		fmt.Println("Regenerating configuration with available ports...")
+
+		newPorts := config.FindAvailablePorts(state.OdooVersion)
+		state.Ports = newPorts
+
+		// Regenerate templates with new ports
+		if err := templates.Render(state); err != nil {
+			return fmt.Errorf("failed to regenerate templates: %w", err)
+		}
+
+		// Save updated state
+		if err := state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+
+		fmt.Printf("%s Files regenerated with new ports\n", green("✓"))
+	}
 
 	// Initialize if requested
 	if flagRunInit {
