@@ -1,7 +1,7 @@
 Source: odooctl
 Section: devel
 Priority: optional
-Maintainer: egeskov <egeskov@users.noreply.github.com>
+Maintainer: mart337i <mart337i@gmail.com>
 Build-Depends: debhelper-compat (= 13), golang-go (>= 1.22)
 Standards-Version: 4.6.0
 Homepage: https://github.com/egeskov/odooctl

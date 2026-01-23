@@ -1,4 +1,4 @@
-odooctl (0.1.0-1) jammy; urgency=medium
+odooctl (0.1.0) noble; urgency=medium
 
   * Initial release
   * Docker environment management (create, run, stop, reset, status, logs)
@@ -8,4 +8,4 @@ odooctl (0.1.0-1) jammy; urgency=medium
   * Port conflict detection and auto-resolution
   * Interactive prompts for first-time build and database initialization
 
- -- egeskov <egeskov@users.noreply.github.com>  Sat, 24 Jan 2026 12:00:00 +0000
+ -- mart337i <mart337i@gmail.com>  Sat, 24 Jan 2026 12:00:00 +0000
