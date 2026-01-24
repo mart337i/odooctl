@@ -31,5 +31,4 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/bin/
-vendor/
 debian/files
