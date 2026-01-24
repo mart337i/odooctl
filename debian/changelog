@@ -1,4 +1,4 @@
-odooctl (0.1.3) noble; urgency=medium
+odooctl (0.1.4) noble; urgency=medium
 
   * Initial release
   * Docker environment management (create, run, stop, reset, status, logs)
