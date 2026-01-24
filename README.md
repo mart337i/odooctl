@@ -18,7 +18,7 @@ sudo apt update
 sudo apt install odooctl
 ```
 
-> **Note:** If you previously installed via `go install`, you may need to run `hash -r` or `source ~/.bashrc` to refresh your shell's command cache.
+> **Note:** If you previously installed via another method, you may need to refresh your shell's command cache: run `hash -r` (bash/zsh) or open a new terminal.
 
 ### Using Go
 
