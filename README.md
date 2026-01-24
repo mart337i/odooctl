@@ -26,9 +26,18 @@ sudo apt install odooctl
 go install github.com/mart337i/odooctl@latest
 ```
 
-### Download Binary
+### Windows (PowerShell)
 
-Download the latest release from [GitHub Releases](https://github.com/mart337i/odooctl/releases) and add it to your PATH.
+```powershell
+# Download latest release to a folder in PATH
+Invoke-WebRequest -Uri "https://github.com/mart337i/odooctl/releases/latest/download/odooctl-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\odooctl.exe"
+```
+
+Or download manually from [GitHub Releases](https://github.com/mart337i/odooctl/releases) and add to your PATH.
+
+### Download Binary (manual)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/mart337i/odooctl/releases) and add it to your PATH.
 
 ### Build from Source
 
