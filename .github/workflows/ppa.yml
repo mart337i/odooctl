@@ -21,7 +21,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y devscripts debhelper golang-go
+          sudo apt-get install -y devscripts debhelper golang-go build-essential
 
       - name: Update changelog for distro
         run: |
