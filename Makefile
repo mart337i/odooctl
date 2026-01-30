@@ -23,13 +23,13 @@ clean:
 test:
 	go test -v ./...
 
-# Format code
+# Format code (excluding vendor)
 fmt:
-	go fmt ./...
+	@find . -name '*.go' -not -path './vendor/*' -exec gofmt -w {} \;
 
-# Run go vet
+# Run go vet (excluding vendor)
 vet:
-	go vet ./...
+	@go vet $(shell go list ./... | grep -v /vendor/)
 
 # Install to GOPATH/bin
 install:

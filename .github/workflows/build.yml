@@ -21,9 +21,11 @@ jobs:
 
       - name: Format check
         run: |
-          if [ -n "$(gofmt -l .)" ]; then
+          # Check formatting excluding vendor directory
+          UNFORMATTED=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
+          if [ -n "$UNFORMATTED" ]; then
             echo "Go code is not formatted:"
-            gofmt -d .
+            gofmt -d $(find . -name '*.go' -not -path './vendor/*')
             exit 1
           fi
 
