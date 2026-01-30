@@ -1,4 +1,4 @@
-.PHONY: build build-all clean test install
+.PHONY: build build-all clean test install fmt vet
 
 VERSION := $(shell git update-index --refresh >/dev/null 2>&1; git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X github.com/egeskov/odooctl/cmd.version=$(VERSION)"
@@ -22,6 +22,14 @@ clean:
 # Run tests
 test:
 	go test -v ./...
+
+# Format code
+fmt:
+	go fmt ./...
+
+# Run go vet
+vet:
+	go vet ./...
 
 # Install to GOPATH/bin
 install:
