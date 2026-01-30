@@ -2,6 +2,7 @@ package templates
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"github.com/egeskov/odooctl/internal/config"
 )
 
-//go:embed files/*
+//go:embed files/* files/12.0/* files/13.0/* files/14.0/* files/15.0/* files/16.0/* files/17.0/*
 var templateFS embed.FS
 
 // Data holds template rendering context
@@ -56,6 +57,18 @@ func NewData(state *config.State) Data {
 	}
 }
 
+// getTemplatePath returns the version-specific template path if it exists,
+// otherwise returns the base template path
+func getTemplatePath(version, filename string) string {
+	// Check for version-specific template first
+	versionPath := fmt.Sprintf("files/%s/%s", version, filename)
+	if _, err := templateFS.ReadFile(versionPath); err == nil {
+		return versionPath
+	}
+	// Fall back to base template
+	return fmt.Sprintf("files/%s", filename)
+}
+
 // Render generates all Docker files to the environment directory
 func Render(state *config.State) error {
 	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
@@ -69,17 +82,22 @@ func Render(state *config.State) error {
 
 	data := NewData(state)
 
-	files := map[string]string{
-		"docker-compose.yml": "files/docker-compose.yml.tmpl",
-		"Dockerfile":         "files/Dockerfile.tmpl",
-		"odoo.conf":          "files/odoo.conf.tmpl",
-		"entrypoint.sh":      "files/entrypoint.sh.tmpl",
-		"wait-for-psql.py":   "files/wait-for-psql.py.tmpl",
-		".env":               "files/.env.tmpl",
-		".dockerignore":      "files/.dockerignore.tmpl",
+	// Map of output filename to template filename
+	templateFiles := []string{
+		"docker-compose.yml.tmpl",
+		"Dockerfile.tmpl",
+		"odoo.conf.tmpl",
+		"entrypoint.sh.tmpl",
+		"wait-for-psql.py.tmpl",
+		".env.tmpl",
+		".dockerignore.tmpl",
 	}
 
-	for outputName, tmplPath := range files {
+	for _, tmplFilename := range templateFiles {
+		// Get version-specific or base template path
+		tmplPath := getTemplatePath(state.OdooVersion, tmplFilename)
+		// Output filename removes .tmpl suffix
+		outputName := strings.TrimSuffix(tmplFilename, ".tmpl")
 		if err := renderFile(dir, outputName, tmplPath, data); err != nil {
 			return err
 		}
