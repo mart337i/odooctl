@@ -128,7 +128,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// Configure report.url parameter
 		fmt.Println("Configuring report.url parameter...")
 		sql := "INSERT INTO ir_config_parameter (key, value) VALUES ('report.url', 'http://odoo:8069') ON CONFLICT (key) DO UPDATE SET value = 'http://odoo:8069';"
-		docker.Compose(state, "exec", "-T", "db", "psql", "-U", "odoo", "-d", getDBName(state), "-c", sql)
+		if err := docker.Compose(state, "exec", "-T", "db", "psql", "-U", "odoo", "-d", getDBName(state), "-c", sql); err != nil {
+			fmt.Printf("%s Warning: failed to configure report.url: %v\n", yellow("⚠️"), err)
+		}
 
 		// Track that initialization has been done
 		if state.InitializedAt == nil {

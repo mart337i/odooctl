@@ -1,14 +1,13 @@
 package docker
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/egeskov/odooctl/internal/deps"
 	"github.com/egeskov/odooctl/internal/docker"
-	"github.com/egeskov/odooctl/internal/module"
 	"github.com/egeskov/odooctl/internal/templates"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -69,7 +68,7 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	copy(newPipPackages, state.PipPackages)
 
 	if flagReconfigAddPip != "" {
-		addedPkgs := parsePipPackagesForReconfigure(flagReconfigAddPip)
+		addedPkgs := deps.ParsePipPackages(flagReconfigAddPip)
 		for _, pkg := range addedPkgs {
 			if !contains(newPipPackages, pkg) {
 				newPipPackages = append(newPipPackages, pkg)
@@ -102,7 +101,7 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	if flagReconfigAutoDiscover {
 		scanDirs := []string{state.ProjectRoot}
 		scanDirs = append(scanDirs, newAddonsPaths...)
-		discoveredPkgs := discoverPythonDepsForReconfigure(scanDirs, newPipPackages)
+		discoveredPkgs := deps.DiscoverPythonDeps(scanDirs, newPipPackages)
 		newPipPackages = append(newPipPackages, discoveredPkgs...)
 	}
 
@@ -169,107 +168,4 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
-}
-
-func parsePipPackagesForReconfigure(input string) []string {
-	if input == "" {
-		return nil
-	}
-
-	// Check if it's a file path
-	if strings.HasSuffix(input, ".txt") || strings.Contains(input, "/") {
-		absPath, err := filepath.Abs(input)
-		if err != nil {
-			return parseCommaSeparatedForReconfigure(input)
-		}
-
-		file, err := os.Open(absPath)
-		if err != nil {
-			return parseCommaSeparatedForReconfigure(input)
-		}
-		defer file.Close()
-
-		var packages []string
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || strings.HasPrefix(line, "#") {
-				continue
-			}
-			packages = append(packages, line)
-		}
-
-		if len(packages) > 0 {
-			fmt.Printf("%s Loaded %d packages from %s\n", color.CyanString("📦"), len(packages), input)
-			return packages
-		}
-	}
-
-	return parseCommaSeparatedForReconfigure(input)
-}
-
-func parseCommaSeparatedForReconfigure(input string) []string {
-	var packages []string
-	for _, pkg := range strings.Split(input, ",") {
-		pkg = strings.TrimSpace(pkg)
-		if pkg != "" {
-			packages = append(packages, pkg)
-		}
-	}
-	return packages
-}
-
-func discoverPythonDepsForReconfigure(dirs []string, existingPkgs []string) []string {
-	existingSet := make(map[string]bool)
-	for _, pkg := range existingPkgs {
-		name := strings.Split(pkg, "==")[0]
-		name = strings.Split(name, ">=")[0]
-		name = strings.Split(name, "<=")[0]
-		name = strings.Split(name, "[")[0]
-		existingSet[strings.ToLower(name)] = true
-	}
-
-	discovered := make(map[string][]string)
-
-	for _, dir := range dirs {
-		modules, _ := module.FindModules(dir)
-		for _, mod := range modules {
-			manifestPath := filepath.Join(dir, mod, "__manifest__.py")
-			deps := parseManifestPythonDeps(manifestPath)
-			for _, dep := range deps {
-				depLower := strings.ToLower(dep)
-				if !existingSet[depLower] {
-					discovered[dep] = append(discovered[dep], mod)
-				}
-			}
-		}
-	}
-
-	if len(discovered) == 0 {
-		return nil
-	}
-
-	fmt.Printf("\n%s Python dependencies detected in manifests:\n", color.CyanString("🔍"))
-
-	var selected []string
-	for pkg, mods := range discovered {
-		fmt.Printf("\n%s %s\n", color.YellowString("📦"), pkg)
-		fmt.Printf("   Required by: %s\n", color.HiBlackString(strings.Join(mods, ", ")))
-
-		fmt.Printf("   Include %s? [Y/n]: ", pkg)
-		var response string
-		fmt.Scanln(&response)
-		if response == "" || strings.ToLower(response) == "y" || strings.ToLower(response) == "yes" {
-			selected = append(selected, pkg)
-			fmt.Printf("   %s Will install %s\n", color.GreenString("✓"), pkg)
-		} else {
-			fmt.Printf("   %s Skipped\n", color.YellowString("⚠️"))
-		}
-	}
-
-	if len(selected) > 0 {
-		fmt.Printf("\n%s Added %d Python packages from manifests\n", color.GreenString("✓"), len(selected))
-	}
-
-	return selected
 }

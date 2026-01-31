@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main,staging]
   pull_request:
     branches: [main]
 
@@ -18,6 +18,19 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+
+      - name: Format check
+        run: |
+          # Check formatting excluding vendor directory
+          UNFORMATTED=$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Go code is not formatted:"
+            gofmt -d $(find . -name '*.go' -not -path './vendor/*')
+            exit 1
+          fi
+
+      - name: Vet
+        run: make vet
 
       - name: Build
         run: make build
