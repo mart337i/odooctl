@@ -26,7 +26,7 @@ x-odoo-common: &odoo-common
     - {{$path}}:/mnt/custom-addons-{{$i}}:ro
 {{- end}}
 {{- if .Enterprise}}
-    - ./enterprise:/mnt/enterprise:ro
+    # Enterprise modules are built into the Docker image at /mnt/enterprise
 {{- end}}
   networks:
     - odoo-network-{{.VersionSuffix}}
