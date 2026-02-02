@@ -103,6 +103,23 @@ RUN pip3 install --no-cache-dir \
     ipython{{if .PipPackages}} \
     {{.PipPackages}}{{end}}
 
+{{if .Enterprise}}
+# Clone Odoo Enterprise
+{{if .EnterpriseGitHubToken}}
+# Using GitHub Personal Access Token
+RUN git clone --depth 1 --branch {{.OdooVersion}} \
+    https://{{.EnterpriseGitHubToken}}@github.com/odoo/enterprise.git /mnt/enterprise && \
+    chown -R odoo:odoo /mnt/enterprise && \
+    chmod -R 755 /mnt/enterprise
+{{else}}
+# Using SSH keys
+RUN --mount=type=ssh git clone --depth 1 --branch {{.OdooVersion}} \
+    git@github.com:odoo/enterprise.git /mnt/enterprise && \
+    chown -R odoo:odoo /mnt/enterprise && \
+    chmod -R 755 /mnt/enterprise
+{{end}}
+{{end}}
+
 COPY ./entrypoint.sh /
 COPY ./wait-for-psql.py /usr/local/bin/wait-for-psql.py
 

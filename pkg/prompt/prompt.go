@@ -40,3 +40,13 @@ func Confirm(message string, defaultVal bool) (bool, error) {
 	err := survey.AskOne(prompt, &result)
 	return result, err
 }
+
+// InputPassword prompts for password/token input (hidden)
+func InputPassword(message string) (string, error) {
+	var result string
+	prompt := &survey.Password{
+		Message: message,
+	}
+	err := survey.AskOne(prompt, &result)
+	return result, err
+}

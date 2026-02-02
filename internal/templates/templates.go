@@ -16,17 +16,18 @@ var templateFS embed.FS
 
 // Data holds template rendering context
 type Data struct {
-	ProjectName   string
-	OdooVersion   string
-	VersionSuffix string
-	DBName        string
-	ProjectRoot   string
-	InitModules   string
-	WithoutDemo   bool
-	Enterprise    bool
-	PipPackages   string
-	AddonsPaths   []string
-	Ports         config.Ports
+	ProjectName           string
+	OdooVersion           string
+	VersionSuffix         string
+	DBName                string
+	ProjectRoot           string
+	InitModules           string
+	WithoutDemo           bool
+	Enterprise            bool
+	EnterpriseGitHubToken string
+	PipPackages           string
+	AddonsPaths           []string
+	Ports                 config.Ports
 }
 
 // NewData creates template data from state
@@ -43,17 +44,18 @@ func NewData(state *config.State) Data {
 	}
 
 	return Data{
-		ProjectName:   state.ProjectName,
-		OdooVersion:   state.OdooVersion,
-		VersionSuffix: versionSuffix,
-		DBName:        dbName,
-		ProjectRoot:   state.ProjectRoot,
-		InitModules:   strings.Join(modules, ","),
-		WithoutDemo:   state.WithoutDemo,
-		Enterprise:    state.Enterprise,
-		PipPackages:   pipPkgs,
-		AddonsPaths:   state.AddonsPaths,
-		Ports:         state.Ports,
+		ProjectName:           state.ProjectName,
+		OdooVersion:           state.OdooVersion,
+		VersionSuffix:         versionSuffix,
+		DBName:                dbName,
+		ProjectRoot:           state.ProjectRoot,
+		InitModules:           strings.Join(modules, ","),
+		WithoutDemo:           state.WithoutDemo,
+		Enterprise:            state.Enterprise,
+		EnterpriseGitHubToken: state.EnterpriseGitHubToken,
+		PipPackages:           pipPkgs,
+		AddonsPaths:           state.AddonsPaths,
+		Ports:                 state.Ports,
 	}
 }
 

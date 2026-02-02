@@ -27,6 +27,12 @@ func Compose(state *config.State, args ...string) error {
 	return cmd.Run()
 }
 
+// ComposeCommand creates an exec.Cmd for docker compose without running it
+func ComposeCommand(state *config.State, args ...string) *exec.Cmd {
+	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
+	return cmd
+}
+
 // ComposeOutput runs docker compose and returns output
 func ComposeOutput(state *config.State, args ...string) (string, error) {
 	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
