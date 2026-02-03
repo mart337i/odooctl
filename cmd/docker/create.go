@@ -140,10 +140,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle enterprise authentication if needed
-	var enterpriseToken string
+	var enterpriseToken, enterpriseSSHKeyPath string
 	if flagEnterprise {
 		var err error
-		enterpriseToken, err = promptEnterpriseAuth()
+		enterpriseToken, enterpriseSSHKeyPath, err = promptEnterpriseAuth()
 		if err != nil {
 			return fmt.Errorf("enterprise authentication failed: %w", err)
 		}
@@ -159,6 +159,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		Modules:               modules,
 		Enterprise:            flagEnterprise,
 		EnterpriseGitHubToken: enterpriseToken,
+		EnterpriseSSHKeyPath:  enterpriseSSHKeyPath,
 		WithoutDemo:           flagWithoutDemo,
 		PipPackages:           pipPkgs,
 		AddonsPaths:           addonsPaths,
@@ -182,59 +183,155 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func promptEnterpriseAuth() (string, error) {
+// promptEnterpriseAuth returns (token, sshKeyPath, error).
+// It loads global config first and offers to reuse saved credentials.
+// Any new credentials entered are persisted to global config for future use.
+func promptEnterpriseAuth() (string, string, error) {
 	green := color.New(color.FgGreen).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
 
+	globalCfg, err := config.LoadGlobalConfig()
+	if err != nil {
+		return "", "", err
+	}
+
 	fmt.Println()
 	fmt.Printf("%s Enterprise access requires authentication\n\n", green("🔐"))
 
-	// Check for SSH keys
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = ""
+	// If we already have a saved token or SSH key, offer to reuse
+	if globalCfg.GitHubToken != "" {
+		fmt.Printf("%s Saved GitHub token found (%s)\n", cyan("ℹ"), maskToken(globalCfg.GitHubToken))
+		reuse, err := prompt.Confirm("Use saved GitHub token?", true)
+		if err != nil {
+			return "", "", err
+		}
+		if reuse {
+			fmt.Printf("%s Using saved GitHub token\n\n", green("✓"))
+			return globalCfg.GitHubToken, "", nil
+		}
+	} else if globalCfg.SSHKeyPath != "" {
+		fmt.Printf("%s Saved SSH key found (%s)\n", cyan("ℹ"), globalCfg.SSHKeyPath)
+		reuse, err := prompt.Confirm("Use saved SSH key?", true)
+		if err != nil {
+			return "", "", err
+		}
+		if reuse {
+			fmt.Printf("%s Using saved SSH key\n\n", green("✓"))
+			return "", globalCfg.SSHKeyPath, nil
+		}
 	}
 
-	hasSSH := false
+	// Discover available SSH keys on the system
+	home, _ := os.UserHomeDir()
+	var detectedSSHKeys []string
 	if home != "" {
-		sshPaths := []string{
-			filepath.Join(home, ".ssh", "id_rsa"),
+		candidates := []string{
 			filepath.Join(home, ".ssh", "id_ed25519"),
+			filepath.Join(home, ".ssh", "id_rsa"),
+			filepath.Join(home, ".ssh", "id_ecdsa"),
 		}
-		for _, path := range sshPaths {
-			if _, err := os.Stat(path); err == nil {
-				hasSSH = true
-				break
+		for _, p := range candidates {
+			if _, err := os.Stat(p); err == nil {
+				detectedSSHKeys = append(detectedSSHKeys, p)
 			}
 		}
 	}
 
-	// Present authentication options
+	// Build choice menu
 	fmt.Println("Choose authentication method:")
-	if hasSSH {
-		fmt.Printf("  [1] SSH Keys %s\n", cyan("(detected)"))
+	if len(detectedSSHKeys) > 0 {
+		fmt.Printf("  [1] SSH Key %s\n", cyan("(key detected)"))
+	} else {
+		fmt.Printf("  [1] SSH Key %s\n", yellow("(enter path manually)"))
 	}
 	fmt.Printf("  [2] Personal Access Token %s\n", cyan("(recommended)"))
 	fmt.Println()
 
-	// Default to token (option 2)
-	useSSH := false
-	if hasSSH {
-		choice, err := prompt.InputString("Select option [1-2]:", "2")
-		if err != nil {
-			return "", err
+	choice, err := prompt.InputString("Select option [1-2]:", "2")
+	if err != nil {
+		return "", "", err
+	}
+
+	if choice == "1" {
+		return promptSSHKey(globalCfg, detectedSSHKeys)
+	}
+	return promptToken(globalCfg)
+}
+
+func promptSSHKey(globalCfg *config.GlobalConfig, detectedKeys []string) (string, string, error) {
+	green := color.New(color.FgGreen).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
+	var keyPath string
+
+	if len(detectedKeys) == 1 {
+		// Only one key found, use it directly
+		keyPath = detectedKeys[0]
+		fmt.Printf("%s Using detected SSH key: %s\n", green("✓"), keyPath)
+	} else if len(detectedKeys) > 1 {
+		// Multiple keys -- let user pick
+		fmt.Println("\nDetected SSH keys:")
+		for i, k := range detectedKeys {
+			fmt.Printf("  [%d] %s\n", i+1, k)
 		}
-		useSSH = choice == "1"
+		fmt.Printf("  [%d] Enter path manually\n", len(detectedKeys)+1)
+		fmt.Println()
+
+		defaultChoice := "1"
+		choice, err := prompt.InputString(fmt.Sprintf("Select key [1-%d]:", len(detectedKeys)+1), defaultChoice)
+		if err != nil {
+			return "", "", err
+		}
+
+		idx := 0
+		fmt.Sscanf(choice, "%d", &idx)
+		if idx >= 1 && idx <= len(detectedKeys) {
+			keyPath = detectedKeys[idx-1]
+		}
+		// else fall through to manual input
 	}
 
-	if useSSH {
-		fmt.Printf("\n%s Using SSH keys for enterprise repository access\n", green("✓"))
-		fmt.Printf("%s Make sure your SSH key is added to GitHub: https://github.com/settings/keys\n\n", yellow("ℹ"))
-		return "", nil // Empty token means use SSH
+	if keyPath == "" {
+		// Manual path entry
+		path, err := prompt.InputString("Enter path to SSH private key:", "~/.ssh/id_ed25519")
+		if err != nil {
+			return "", "", err
+		}
+		expanded, err := expandPath(path)
+		if err != nil {
+			return "", "", err
+		}
+		if _, err := os.Stat(expanded); err != nil {
+			return "", "", fmt.Errorf("SSH key file not found: %s", expanded)
+		}
+		keyPath = expanded
 	}
 
-	// Prompt for token
+	// Offer to save globally
+	save, err := prompt.Confirm("Save this SSH key path for future environments?", true)
+	if err != nil {
+		return "", "", err
+	}
+	if save {
+		globalCfg.SSHKeyPath = keyPath
+		globalCfg.GitHubToken = "" // clear token if switching to SSH
+		if err := globalCfg.Save(); err != nil {
+			fmt.Printf("%s Could not save to global config: %v\n", yellow("⚠"), err)
+		} else {
+			fmt.Printf("%s SSH key path saved globally\n", green("✓"))
+		}
+	}
+
+	fmt.Printf("%s Make sure this key is added to GitHub: https://github.com/settings/keys\n\n", yellow("ℹ"))
+	return "", keyPath, nil
+}
+
+func promptToken(globalCfg *config.GlobalConfig) (string, string, error) {
+	green := color.New(color.FgGreen).SprintFunc()
+	cyan := color.New(color.FgCyan).SprintFunc()
+	yellow := color.New(color.FgYellow).SprintFunc()
+
 	fmt.Println()
 	fmt.Printf("%s To create a Personal Access Token:\n", cyan("ℹ"))
 	fmt.Printf("  1. Visit: %s\n", cyan("https://github.com/settings/tokens/new"))
@@ -244,28 +341,69 @@ func promptEnterpriseAuth() (string, error) {
 
 	token, err := prompt.InputPassword("Enter GitHub Personal Access Token:")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return "", fmt.Errorf("token cannot be empty")
+		return "", "", fmt.Errorf("token cannot be empty")
 	}
 
-	// Basic validation - modern GitHub tokens start with specific prefixes
 	if !strings.HasPrefix(token, "ghp_") && !strings.HasPrefix(token, "github_pat_") {
 		fmt.Printf("\n%s Token doesn't match expected format (should start with 'ghp_' or 'github_pat_')\n", yellow("⚠"))
 		confirm, err := prompt.Confirm("Continue anyway?", false)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if !confirm {
-			return "", fmt.Errorf("authentication cancelled")
+			return "", "", fmt.Errorf("authentication cancelled")
 		}
 	}
 
-	fmt.Printf("\n%s Token saved securely in environment configuration\n", green("✓"))
-	return token, nil
+	// Offer to save globally
+	save, err := prompt.Confirm("Save this token for future environments?", true)
+	if err != nil {
+		return "", "", err
+	}
+	if save {
+		globalCfg.GitHubToken = token
+		globalCfg.SSHKeyPath = "" // clear SSH key if switching to token
+		if err := globalCfg.Save(); err != nil {
+			fmt.Printf("%s Could not save to global config: %v\n", yellow("⚠"), err)
+		} else {
+			fmt.Printf("%s Token saved globally\n", green("✓"))
+		}
+	}
+
+	fmt.Printf("\n%s Token configured for enterprise access\n", green("✓"))
+	return token, "", nil
+}
+
+// expandPath expands ~ to the user's home directory
+func expandPath(path string) (string, error) {
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+	return filepath.Abs(path)
+}
+
+// maskToken shows only the prefix and last 4 chars of a token
+func maskToken(token string) string {
+	if len(token) <= 8 {
+		return "****"
+	}
+	prefixEnd := 4
+	if strings.HasPrefix(token, "github_pat_") {
+		prefixEnd = 11
+	}
+	visible := token[:prefixEnd]
+	last4 := token[len(token)-4:]
+	masked := len(token) - prefixEnd - 4
+	return visible + strings.Repeat(string("*"[0]), masked) + last4
 }
 
 func printCreateSummary(state *config.State) {
@@ -284,9 +422,11 @@ func printCreateSummary(state *config.State) {
 	fmt.Printf("  Files:       %s\n", cyan(dir))
 
 	if state.Enterprise {
-		authMethod := "SSH Keys"
+		authMethod := "SSH Agent"
 		if state.EnterpriseGitHubToken != "" {
 			authMethod = "GitHub Token"
+		} else if state.EnterpriseSSHKeyPath != "" {
+			authMethod = fmt.Sprintf("SSH Key (%s)", state.EnterpriseSSHKeyPath)
 		}
 		fmt.Printf("  Enterprise:  %s (%s)\n", green("✓"), authMethod)
 	}

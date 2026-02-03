@@ -11,7 +11,7 @@ import (
 	"github.com/egeskov/odooctl/internal/config"
 )
 
-//go:embed files/* files/12.0/* files/13.0/* files/14.0/* files/15.0/* files/16.0/* files/17.0/*
+//go:embed files/* files/12.0/* files/13.0/* files/14.0/* files/15.0/* files/16.0/* files/17.0/* files/19.0/*
 var templateFS embed.FS
 
 // Data holds template rendering context
@@ -25,6 +25,7 @@ type Data struct {
 	WithoutDemo           bool
 	Enterprise            bool
 	EnterpriseGitHubToken string
+	EnterpriseSSHKeyPath  string
 	PipPackages           string
 	AddonsPaths           []string
 	Ports                 config.Ports
@@ -53,6 +54,7 @@ func NewData(state *config.State) Data {
 		WithoutDemo:           state.WithoutDemo,
 		Enterprise:            state.Enterprise,
 		EnterpriseGitHubToken: state.EnterpriseGitHubToken,
+		EnterpriseSSHKeyPath:  state.EnterpriseSSHKeyPath,
 		PipPackages:           pipPkgs,
 		AddonsPaths:           state.AddonsPaths,
 		Ports:                 state.Ports,

@@ -3,7 +3,6 @@ package docker
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/egeskov/odooctl/internal/config"
@@ -104,24 +103,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if flagRunInit {
 		fmt.Println("Initializing database...")
 
-		// Build init command with modules
-		modules := []string{"base", "web"}
-		modules = append(modules, state.Modules...)
-
-		initArgs := []string{
-			"run", "--rm", "odoo",
-			"odoo", "-c", "/etc/odoo/odoo.conf",
-			"-d", getDBName(state),
-			"-i", strings.Join(modules, ","),
-		}
-
-		// Use WithoutDemo from state (set during create)
-		if state.WithoutDemo {
-			initArgs = append(initArgs, "--without-demo=all")
-		}
-		initArgs = append(initArgs, "--stop-after-init")
-
-		if err := docker.Compose(state, initArgs...); err != nil {
+		// Use the odoo-init service defined in docker-compose (activated via the
+		// "init" profile). Its command is rendered by the template and already
+		// handles the demo-data flag correctly for every Odoo version.
+		if err := docker.Compose(state, "--profile", "init", "up", "--wait", "--no-detach", "odoo-init"); err != nil {
 			return fmt.Errorf("failed to initialize: %w", err)
 		}
 
