@@ -84,10 +84,23 @@ RUN git clone --depth 1 --branch {{.OdooVersion}} \
     https://{{.EnterpriseGitHubToken}}@github.com/odoo/enterprise.git /mnt/enterprise && \
     chown -R odoo:odoo /mnt/enterprise && \
     chmod -R 755 /mnt/enterprise
-{{else}}
-# Using SSH keys
-RUN --mount=type=ssh git clone --depth 1 --branch {{.OdooVersion}} \
+{{else if .EnterpriseSSHKeyPath}}
+# Using specific SSH key (mounted as build secret)
+RUN --mount=type=secret,id=enterprise_ssh_key bash -c 'mkdir -p /root/.ssh && \
+    ssh-keyscan github.com >> /root/.ssh/known_hosts && \
+    cp /run/secrets/enterprise_ssh_key /root/.ssh/id_enterprise && \
+    chmod 600 /root/.ssh/id_enterprise && \
+    GIT_SSH_COMMAND="ssh -i /root/.ssh/id_enterprise" \
+    git clone --depth 1 --branch {{.OdooVersion}} \
     git@github.com:odoo/enterprise.git /mnt/enterprise && \
+    rm /root/.ssh/id_enterprise' && \
+    chown -R odoo:odoo /mnt/enterprise && \
+    chmod -R 755 /mnt/enterprise
+{{else}}
+# Using SSH agent
+RUN --mount=type=ssh bash -c 'mkdir -p /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts && \
+    git clone --depth 1 --branch {{.OdooVersion}} \
+    git@github.com:odoo/enterprise.git /mnt/enterprise' && \
     chown -R odoo:odoo /mnt/enterprise && \
     chmod -R 755 /mnt/enterprise
 {{end}}

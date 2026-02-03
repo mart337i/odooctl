@@ -10,6 +10,63 @@ import (
 )
 
 const StateFileName = ".odooctl-state.json"
+const GlobalConfigFileName = "config.json"
+
+// GlobalConfig holds user-level settings shared across all environments
+type GlobalConfig struct {
+	SSHKeyPath  string `json:"ssh_key_path,omitempty"` // Path to SSH private key (e.g. ~/.ssh/id_ed25519)
+	GitHubToken string `json:"github_token,omitempty"` // GitHub Personal Access Token for enterprise repo
+}
+
+// GlobalConfigPath returns ~/.odooctl/config.json
+func GlobalConfigPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, GlobalConfigFileName), nil
+}
+
+// LoadGlobalConfig reads ~/.odooctl/config.json. Returns an empty config if the file doesn't exist yet.
+func LoadGlobalConfig() (*GlobalConfig, error) {
+	path, err := GlobalConfigPath()
+	if err != nil {
+		return &GlobalConfig{}, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &GlobalConfig{}, nil
+		}
+		return nil, err
+	}
+
+	var cfg GlobalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// Save writes the global config to ~/.odooctl/config.json
+func (c *GlobalConfig) Save() error {
+	dir, err := ConfigDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(dir, GlobalConfigFileName)
+	return os.WriteFile(path, data, 0600) // 0600: owner-only, it may contain a token
+}
 
 type Ports struct {
 	Odoo    int `json:"odoo"`
@@ -27,6 +84,7 @@ type State struct {
 	Modules               []string   `json:"modules"`
 	Enterprise            bool       `json:"enterprise"`
 	EnterpriseGitHubToken string     `json:"enterprise_github_token,omitempty"` // GitHub token for enterprise repo access
+	EnterpriseSSHKeyPath  string     `json:"enterprise_ssh_key_path,omitempty"` // Path to SSH private key for enterprise repo
 	WithoutDemo           bool       `json:"without_demo"`
 	PipPackages           []string   `json:"pip_packages"`
 	AddonsPaths           []string   `json:"addons_paths"`

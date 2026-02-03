@@ -62,7 +62,8 @@ services:
     profiles:
       - init
     restart: "no"
-    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if .WithoutDemo}}, "--without-demo=all"{{end}}, "--stop-after-init"]
+    # Odoo 19+: demo data is off by default; use --with-demo to enable (inverted from prior versions)
+    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if not .WithoutDemo}}, "--with-demo"{{end}}, "--stop-after-init"]
 
   odoo-update:
     <<: *odoo-common
