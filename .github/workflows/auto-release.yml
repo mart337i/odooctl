@@ -1,0 +1,175 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  # -------------------------------------------------------------------
+  # 1. Bump version, create tag, and build release binaries
+  # -------------------------------------------------------------------
+  release:
+    runs-on: ubuntu-latest
+    # Skip if the commit was made by this workflow (prevent loops)
+    # or if the commit message contains [skip release] / [no release]
+    if: |
+      !contains(github.event.head_commit.message, '[skip release]') &&
+      !contains(github.event.head_commit.message, '[no release]') &&
+      github.event.head_commit.author.name != 'github-actions[bot]'
+    outputs:
+      new_tag: ${{ steps.bump.outputs.new_tag }}
+      new_version: ${{ steps.bump.outputs.new_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          # Get the latest tag (normalize: strip leading v/V)
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+
+          VERSION=$(echo "$LATEST_TAG" | sed 's/^[vV]//')
+
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+
+          # Bump type from commit message: [major], [minor], or default patch
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if echo "$COMMIT_MSG" | grep -qi '\[major\]'; then
+            MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
+          elif echo "$COMMIT_MSG" | grep -qi '\[minor\]'; then
+            MINOR=$((MINOR + 1)); PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          NEW_TAG="v${NEW_VERSION}"
+
+          echo "New version: $NEW_VERSION"
+          echo "New tag: $NEW_TAG"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build all platforms
+        run: make build-all
+
+      - name: Create tag and release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.bump.outputs.new_tag }}
+          name: ${{ steps.bump.outputs.new_tag }}
+          generate_release_notes: true
+          files: |
+            bin/odooctl-linux-amd64
+            bin/odooctl-linux-arm64
+            bin/odooctl-darwin-amd64
+            bin/odooctl-darwin-arm64
+            bin/odooctl-windows-amd64.exe
+
+  # -------------------------------------------------------------------
+  # 2. Build .deb source packages and publish to Launchpad PPA
+  # -------------------------------------------------------------------
+  ppa:
+    needs: release
+    if: |
+      needs.release.result == 'success' &&
+      !contains(github.event.head_commit.message, '[skip ppa]')
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [jammy, noble]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts debhelper golang-go build-essential dput
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+          echo "${GPG_KEY_ID}:6:" | gpg --import-ownertrust
+          # Verify the key is available
+          gpg --list-secret-keys --keyid-format LONG
+
+      - name: Generate debian/changelog
+        env:
+          GPG_EMAIL: ${{ secrets.GPG_EMAIL }}
+        run: |
+          VERSION="${{ needs.release.outputs.new_version }}"
+          DISTRO="${{ matrix.distro }}"
+          DATE=$(date -R)
+          # Debian changelog format is strict about whitespace.
+          # Use printf to avoid heredoc indentation issues.
+          printf 'odooctl (%s) %s; urgency=medium\n\n  * Release %s\n\n -- mart337i <%s>  %s\n' \
+            "$VERSION" "$DISTRO" "$VERSION" "$GPG_EMAIL" "$DATE" \
+            > debian/changelog
+          echo "--- debian/changelog ---"
+          cat debian/changelog
+
+      - name: Vendor Go dependencies
+        run: go mod vendor
+
+      - name: Build signed source package
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          # Build source-only package, signed with our GPG key
+          dpkg-buildpackage -S -sa \
+            -k"${GPG_KEY_ID}" \
+            -p"gpg --batch --pinentry-mode loopback --passphrase '${GPG_PASSPHRASE}'"
+
+          mkdir -p dist
+          cp ../*.dsc ../*.tar.* ../*_source.changes ../*_source.buildinfo dist/ 2>/dev/null || true
+          echo "--- Built artifacts ---"
+          ls -la dist/
+
+      - name: Upload to Launchpad PPA
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          # Configure dput for Launchpad
+          printf '[odooctl-ppa]\nfqdn = ppa.launchpad.net\nmethod = ftp\nincoming = ~mart337i/ubuntu/odooctl/\nlogin = anonymous\nallow_unsigned_uploads = 0\n' > ~/.dput.cf
+
+          CHANGES_FILE=$(ls dist/*_source.changes | head -1)
+
+          # debsign the .changes file (may already be signed, but be safe)
+          debsign -k"${GPG_KEY_ID}" \
+            -p"gpg --batch --pinentry-mode loopback --passphrase '${GPG_PASSPHRASE}'" \
+            "$CHANGES_FILE"
+
+          echo "Uploading to PPA..."
+          dput odooctl-ppa "$CHANGES_FILE"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odooctl-source-${{ matrix.distro }}
+          path: dist/*

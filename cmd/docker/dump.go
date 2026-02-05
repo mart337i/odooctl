@@ -130,7 +130,6 @@ func dumpDatabase(state *config.State, dbName, outputFile string) error {
 
 	// Run pg_dump via docker compose exec
 	args := []string{
-		"compose",
 		"exec",
 		"-T",
 		"db",
