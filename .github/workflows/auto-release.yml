@@ -112,7 +112,10 @@ jobs:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+
+          # Set ownertrust to ultimate (requires full 40-char fingerprint)
           echo "${GPG_KEY_ID}:6:" | gpg --import-ownertrust
+
           # Verify the key is available
           gpg --list-secret-keys --keyid-format LONG
 
@@ -124,7 +127,6 @@ jobs:
           DISTRO="${{ matrix.distro }}"
           DATE=$(date -R)
           # Debian changelog format is strict about whitespace.
-          # Use printf to avoid heredoc indentation issues.
           printf 'odooctl (%s) %s; urgency=medium\n\n  * Release %s\n\n -- mart337i <%s>  %s\n' \
             "$VERSION" "$DISTRO" "$VERSION" "$GPG_EMAIL" "$DATE" \
             > debian/changelog
@@ -137,12 +139,12 @@ jobs:
       - name: Build signed source package
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          # Build source-only package, signed with our GPG key
+          # Build source-only package, signed with our GPG key.
+          # --pinentry-mode loopback + --passphrase '' handles keys with no passphrase.
           dpkg-buildpackage -S -sa \
             -k"${GPG_KEY_ID}" \
-            -p"gpg --batch --pinentry-mode loopback --passphrase '${GPG_PASSPHRASE}'"
+            -p"gpg --batch --pinentry-mode loopback --passphrase ''"
 
           mkdir -p dist
           cp ../*.dsc ../*.tar.* ../*_source.changes ../*_source.buildinfo dist/ 2>/dev/null || true
@@ -152,16 +154,15 @@ jobs:
       - name: Upload to Launchpad PPA
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
           # Configure dput for Launchpad
           printf '[odooctl-ppa]\nfqdn = ppa.launchpad.net\nmethod = ftp\nincoming = ~mart337i/ubuntu/odooctl/\nlogin = anonymous\nallow_unsigned_uploads = 0\n' > ~/.dput.cf
 
           CHANGES_FILE=$(ls dist/*_source.changes | head -1)
 
-          # debsign the .changes file (may already be signed, but be safe)
+          # debsign the .changes file
           debsign -k"${GPG_KEY_ID}" \
-            -p"gpg --batch --pinentry-mode loopback --passphrase '${GPG_PASSPHRASE}'" \
+            -p"gpg --batch --pinentry-mode loopback --passphrase ''" \
             "$CHANGES_FILE"
 
           echo "Uploading to PPA..."
