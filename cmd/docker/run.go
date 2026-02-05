@@ -106,7 +106,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// Use the odoo-init service defined in docker-compose (activated via the
 		// "init" profile). Its command is rendered by the template and already
 		// handles the demo-data flag correctly for every Odoo version.
-		if err := docker.Compose(state, "--profile", "init", "up", "--wait", "--no-detach", "odoo-init"); err != nil {
+		if err := docker.Compose(state, "--profile", "init", "up", "--wait", "odoo-init"); err != nil {
 			return fmt.Errorf("failed to initialize: %w", err)
 		}
 
