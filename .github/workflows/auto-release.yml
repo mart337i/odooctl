@@ -136,15 +136,28 @@ jobs:
       - name: Vendor Go dependencies
         run: go mod vendor
 
+      - name: Create GPG signing wrapper
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        run: |
+          # dpkg-buildpackage/debsign -p takes a path to an executable,
+          # not a command string with arguments. Create a wrapper script.
+          echo '#!/bin/sh' > /tmp/gpg-sign.sh
+          echo 'exec gpg --batch --pinentry-mode loopback --passphrase "" "$@"' >> /tmp/gpg-sign.sh
+          chmod +x /tmp/gpg-sign.sh
+          cat /tmp/gpg-sign.sh
+          # Sanity check: can the wrapper sign?
+          echo "test" | /tmp/gpg-sign.sh --clearsign -u "${GPG_KEY_ID}" > /dev/null 2>&1 \
+            && echo "GPG signing wrapper: OK" \
+            || { echo "ERROR: GPG signing wrapper failed"; exit 1; }
+
       - name: Build signed source package
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
-          # Build source-only package, signed with our GPG key.
-          # --pinentry-mode loopback + --passphrase '' handles keys with no passphrase.
           dpkg-buildpackage -S -sa \
             -k"${GPG_KEY_ID}" \
-            -p"gpg --batch --pinentry-mode loopback --passphrase ''"
+            -p/tmp/gpg-sign.sh
 
           mkdir -p dist
           cp ../*.dsc ../*.tar.* ../*_source.changes ../*_source.buildinfo dist/ 2>/dev/null || true
@@ -160,10 +173,8 @@ jobs:
 
           CHANGES_FILE=$(ls dist/*_source.changes | head -1)
 
-          # debsign the .changes file
-          debsign -k"${GPG_KEY_ID}" \
-            -p"gpg --batch --pinentry-mode loopback --passphrase ''" \
-            "$CHANGES_FILE"
+          # debsign also takes -p as a path to a sign command
+          debsign -k"${GPG_KEY_ID}" -p/tmp/gpg-sign.sh "$CHANGES_FILE"
 
           echo "Uploading to PPA..."
           dput odooctl-ppa "$CHANGES_FILE"
