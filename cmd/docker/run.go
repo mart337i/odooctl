@@ -99,6 +99,29 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	fmt.Println("Starting containers...")
+	// Start main containers
+	upArgs := []string{"up"}
+	if flagRunDetach {
+		upArgs = append(upArgs, "-d")
+	}
+	if flagRunBuild {
+		upArgs = append(upArgs, "--build")
+	}
+
+	if err := docker.Compose(state, upArgs...); err != nil {
+		return fmt.Errorf("failed to start containers: %w", err)
+	}
+
+	// Track that build has been done
+	if flagRunBuild && state.BuiltAt == nil {
+		now := time.Now()
+		state.BuiltAt = &now
+		if err := state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+	}
+
 	// Initialize if requested
 	if flagRunInit {
 		fmt.Println("Initializing database...")
@@ -106,7 +129,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// Use the odoo-init service defined in docker-compose (activated via the
 		// "init" profile). Its command is rendered by the template and already
 		// handles the demo-data flag correctly for every Odoo version.
-		if err := docker.Compose(state, "--profile", "init", "up", "--wait", "--no-detach", "odoo-init"); err != nil {
+		if err := docker.Compose(state, "--profile", "init", "up", "odoo-init"); err != nil {
 			return fmt.Errorf("failed to initialize: %w", err)
 		}
 
@@ -127,30 +150,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Printf("%s Database initialized\n\n", green("✓"))
-	}
-
-	// Start main containers
-	fmt.Println("Starting containers...")
-
-	upArgs := []string{"up"}
-	if flagRunDetach {
-		upArgs = append(upArgs, "-d")
-	}
-	if flagRunBuild {
-		upArgs = append(upArgs, "--build")
-	}
-
-	if err := docker.Compose(state, upArgs...); err != nil {
-		return fmt.Errorf("failed to start containers: %w", err)
-	}
-
-	// Track that build has been done
-	if flagRunBuild && state.BuiltAt == nil {
-		now := time.Now()
-		state.BuiltAt = &now
-		if err := state.Save(); err != nil {
-			return fmt.Errorf("failed to save state: %w", err)
-		}
 	}
 
 	if flagRunDetach {
