@@ -129,8 +129,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// Use the odoo-init service defined in docker-compose (activated via the
 		// "init" profile). Its command is rendered by the template and already
 		// handles the demo-data flag correctly for every Odoo version.
-		if err := docker.Compose(state, "--profile", "init", "up", "odoo-init"); err != nil {
+		// Run attached (no -d) so we block until the init container exits.
+		// --abort-on-container-exit ensures compose stops when odoo-init finishes.
+		if err := docker.Compose(state, "--profile", "init", "up", "--build", "--abort-on-container-exit", "odoo-init"); err != nil {
 			return fmt.Errorf("failed to initialize: %w", err)
+		}
+
+		// Ensure db is running before configuring report.url
+		// (--abort-on-container-exit may have stopped it along with odoo-init)
+		if err := docker.Compose(state, "up", "-d", "db"); err != nil {
+			fmt.Printf("%s Warning: failed to restart db: %v\n", yellow("⚠️"), err)
 		}
 
 		// Configure report.url parameter

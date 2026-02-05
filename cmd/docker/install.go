@@ -69,7 +69,32 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	// Handle --update-all flag (force -u base)
 	if flagInstallUpdateAll {
 		fmt.Println("Running full upgrade (-u base)...")
-		return runOdooUpdate(state, nil, []string{"base"})
+
+		// Stop the odoo container before running upgrade
+		fmt.Println("Stopping Odoo container...")
+		if err := docker.Compose(state, "stop", "odoo"); err != nil {
+			fmt.Printf("%s Warning: failed to stop odoo container: %v\n", yellow("!"), err)
+		}
+
+		// Run the upgrade
+		upgradeErr := runOdooUpdate(state, nil, []string{"base"})
+
+		// Always restart the odoo container, even if upgrade failed
+		fmt.Println("Restarting Odoo container...")
+		if err := docker.Compose(state, "up", "-d", "odoo"); err != nil {
+			fmt.Printf("%s Warning: failed to restart odoo container: %v\n", yellow("!"), err)
+			if upgradeErr == nil {
+				return fmt.Errorf("upgrade succeeded but failed to restart container: %w", err)
+			}
+		}
+
+		// Return upgrade result
+		if upgradeErr != nil {
+			return upgradeErr
+		}
+
+		fmt.Printf("\n%s Full upgrade complete\n", green("✓"))
+		return nil
 	}
 
 	// Find available LOCAL modules
@@ -226,10 +251,28 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Updating: %s\n", yellow(strings.Join(allUpdate, ", ")))
 	}
 
+	// Stop the odoo container before running install/update
+	fmt.Println("\nStopping Odoo container...")
+	if err := docker.Compose(state, "stop", "odoo"); err != nil {
+		fmt.Printf("%s Warning: failed to stop odoo container: %v\n", yellow("!"), err)
+	}
+
 	// Run odoo-bin via docker compose
-	fmt.Println()
-	if err := runOdooUpdate(state, allInstall, allUpdate); err != nil {
-		return err
+	fmt.Println("Running install/update...")
+	installErr := runOdooUpdate(state, allInstall, allUpdate)
+
+	// Always restart the odoo container, even if install failed
+	fmt.Println("Restarting Odoo container...")
+	if err := docker.Compose(state, "up", "-d", "odoo"); err != nil {
+		fmt.Printf("%s Warning: failed to restart odoo container: %v\n", yellow("!"), err)
+		if installErr == nil {
+			return fmt.Errorf("install succeeded but failed to restart container: %w", err)
+		}
+	}
+
+	// If install failed, return that error now
+	if installErr != nil {
+		return installErr
 	}
 
 	// Save new hashes for local modules
