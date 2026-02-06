@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/egeskov/odooctl/internal/config"
@@ -75,7 +74,7 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	switch key {
 	case "ssh-key-path":
 		// Expand ~ and validate the path exists
-		expanded, err := expandPath(value)
+		expanded, err := config.ExpandPath(value)
 		if err != nil {
 			return err
 		}
@@ -122,7 +121,7 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 		if cfg.GitHubToken == "" {
 			fmt.Println("(not set)")
 		} else {
-			fmt.Println(maskToken(cfg.GitHubToken))
+			fmt.Println(config.MaskToken(cfg.GitHubToken))
 		}
 	default:
 		return fmt.Errorf("unknown config key: %s\nValid keys: ssh-key-path, github-token", key)
@@ -177,37 +176,9 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	if cfg.GitHubToken == "" {
 		fmt.Printf("  github-token:  %s\n", yellow("(not set)"))
 	} else {
-		fmt.Printf("  github-token:  %s\n", cyan(maskToken(cfg.GitHubToken)))
+		fmt.Printf("  github-token:  %s\n", cyan(config.MaskToken(cfg.GitHubToken)))
 	}
 
 	fmt.Println()
 	return nil
-}
-
-// expandPath expands ~ to the user's home directory
-func expandPath(path string) (string, error) {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-	return filepath.Abs(path)
-}
-
-// maskToken shows only the prefix and last 4 chars
-func maskToken(token string) string {
-	if len(token) <= 8 {
-		return "****"
-	}
-	// Show prefix (ghp_ or github_pat_) + enough to identify, mask the rest
-	prefixEnd := 4
-	if strings.HasPrefix(token, "github_pat_") {
-		prefixEnd = 11
-	}
-	visible := token[:prefixEnd]
-	last4 := token[len(token)-4:]
-	masked := len(token) - prefixEnd - 4
-	return visible + strings.Repeat("*", masked) + last4
 }

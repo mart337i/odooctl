@@ -91,6 +91,37 @@ install() {
         error "Failed to download from $DOWNLOAD_URL"
     fi
     
+    # Download and verify checksum if available
+    CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
+    if curl -fsSL "$CHECKSUM_URL" -o "${TMP_DIR}/checksums.txt" 2>/dev/null; then
+        info "Verifying checksum..."
+        
+        # Extract expected checksum for this binary
+        EXPECTED=$(grep "$BINARY" "${TMP_DIR}/checksums.txt" | awk '{print $1}')
+        
+        if [ -n "$EXPECTED" ]; then
+            # Calculate actual checksum
+            if command -v sha256sum &> /dev/null; then
+                ACTUAL=$(sha256sum "$TMP_FILE" | awk '{print $1}')
+            elif command -v shasum &> /dev/null; then
+                ACTUAL=$(shasum -a 256 "$TMP_FILE" | awk '{print $1}')
+            else
+                warn "No sha256sum or shasum available, skipping checksum verification"
+                ACTUAL="$EXPECTED"
+            fi
+            
+            if [ "$EXPECTED" != "$ACTUAL" ]; then
+                rm -rf "$TMP_DIR"
+                error "Checksum mismatch! Expected: $EXPECTED, Got: $ACTUAL"
+            fi
+            info "Checksum verified successfully"
+        else
+            warn "Checksum not found for $BINARY, skipping verification"
+        fi
+    else
+        warn "Checksums file not available for this release, skipping verification"
+    fi
+    
     chmod +x "$TMP_FILE"
     
     # Install to system directory (requires sudo on Linux/macOS)

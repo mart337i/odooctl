@@ -4,10 +4,13 @@ x-odoo-common: &odoo-common
     context: .
     dockerfile: Dockerfile
 {{- if .Enterprise}}
-{{- if .EnterpriseSSHKeyPath}}
+{{- if .EnterpriseGitHubToken}}
+    secrets:
+      - github_token
+{{- else if .EnterpriseSSHKeyPath}}
     secrets:
       - enterprise_ssh_key
-{{- else if not .EnterpriseGitHubToken}}
+{{- else}}
     ssh:
       - default
 {{- end}}
@@ -99,9 +102,16 @@ volumes:
   odoo-postgres-data-{{.VersionSuffix}}:
   odoo-filestore-{{.VersionSuffix}}:
   odoo-sessions-{{.VersionSuffix}}:
-{{- if and .Enterprise .EnterpriseSSHKeyPath}}
+{{- if .Enterprise}}
+{{- if .EnterpriseGitHubToken}}
+
+secrets:
+  github_token:
+    environment: GITHUB_TOKEN
+{{- else if .EnterpriseSSHKeyPath}}
 
 secrets:
   enterprise_ssh_key:
     file: {{.EnterpriseSSHKeyPath}}
+{{- end}}
 {{- end}}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/egeskov/odooctl/internal/config"
+	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -135,11 +136,8 @@ func runGoto(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prompt for selection
-	fmt.Printf("\nSelect project (1-%d) or 'q' to quit: ", len(projects))
-	var input string
-	fmt.Scanln(&input)
-
-	if input == "q" || input == "Q" || input == "" {
+	input, err := prompt.InputString(fmt.Sprintf("\nSelect project (1-%d) or 'q' to quit:", len(projects)), "")
+	if err != nil || input == "q" || input == "Q" || input == "" {
 		fmt.Println("Cancelled.")
 		return nil
 	}
@@ -181,7 +179,7 @@ func runGoto(cmd *cobra.Command, args []string) error {
 						cmd.Dir = selected.ProjectRoot
 						cmd.Stdout = os.Stdout
 						cmd.Stderr = os.Stderr
-						cmd.Run()
+						_ = cmd.Run() // Best effort, errors will be visible in stderr
 					}
 				}
 			}

@@ -1,4 +1,4 @@
-.PHONY: build build-all clean test install fmt vet
+.PHONY: build build-all clean test install fmt vet lint checksums
 
 VERSION := $(shell git update-index --refresh >/dev/null 2>&1; git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -ldflags "-X github.com/egeskov/odooctl/cmd.version=$(VERSION)"
@@ -31,6 +31,10 @@ fmt:
 vet:
 	@go vet $(shell go list ./... | grep -v /vendor/)
 
+# Run golangci-lint for comprehensive static analysis
+lint:
+	@golangci-lint run ./...
+
 # Install to GOPATH/bin
 install:
 	go install $(LDFLAGS) .
@@ -38,3 +42,8 @@ install:
 # Development: build and run
 run: build
 	./bin/odooctl $(ARGS)
+
+# Generate SHA256 checksums for release binaries
+checksums:
+	@cd bin && sha256sum odooctl-* > checksums.txt
+	@echo "Checksums generated in bin/checksums.txt"

@@ -298,7 +298,7 @@ func runOdooUpdate(state *config.State, install, update []string) error {
 	args := []string{
 		"run", "--rm", "odoo",
 		"odoo", "-c", "/etc/odoo/odoo.conf",
-		"-d", getDBName(state),
+		"-d", state.DBName(),
 	}
 
 	if len(install) > 0 {
@@ -310,11 +310,6 @@ func runOdooUpdate(state *config.State, install, update []string) error {
 	args = append(args, "--stop-after-init")
 
 	return docker.Compose(state, args...)
-}
-
-func getDBName(state *config.State) string {
-	versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
-	return "odoo-" + versionSuffix
 }
 
 func hashFilePath(state *config.State) (string, error) {

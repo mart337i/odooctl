@@ -143,6 +143,8 @@ func isVersion18OrHigher(version string) bool {
 		return true // default to modern
 	}
 	var major int
-	fmt.Sscanf(version, "%d", &major)
+	if _, err := fmt.Sscanf(version, "%d", &major); err != nil {
+		return true // default to modern on parse error
+	}
 	return major >= 18
 }

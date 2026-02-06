@@ -127,18 +127,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		pipPkgs = append(pipPkgs, discoveredPkgs...)
 	}
 
-	branchOrVersion := ctx.Branch
-	if branchOrVersion == "" {
-		branchOrVersion = ctx.OdooVersion
-	}
-
-	dockerRoot := filepath.Join(ctx.Root, ctx.Name, branchOrVersion, "docker")
-
-	// Ensure directory exists
-	if err := os.MkdirAll(dockerRoot, 0755); err != nil {
-		return fmt.Errorf("failed to create docker directory: %w", err)
-	}
-
 	// Handle enterprise authentication if needed
 	var enterpriseToken, enterpriseSSHKeyPath string
 	if flagEnterprise {
@@ -201,7 +189,7 @@ func promptEnterpriseAuth() (string, string, error) {
 
 	// If we already have a saved token or SSH key, offer to reuse
 	if globalCfg.GitHubToken != "" {
-		fmt.Printf("%s Saved GitHub token found (%s)\n", cyan("ℹ"), maskToken(globalCfg.GitHubToken))
+		fmt.Printf("%s Saved GitHub token found (%s)\n", cyan("ℹ"), config.MaskToken(globalCfg.GitHubToken))
 		reuse, err := prompt.Confirm("Use saved GitHub token?", true)
 		if err != nil {
 			return "", "", err
@@ -285,9 +273,10 @@ func promptSSHKey(globalCfg *config.GlobalConfig, detectedKeys []string) (string
 		}
 
 		idx := 0
-		fmt.Sscanf(choice, "%d", &idx)
-		if idx >= 1 && idx <= len(detectedKeys) {
-			keyPath = detectedKeys[idx-1]
+		if _, err := fmt.Sscanf(choice, "%d", &idx); err == nil {
+			if idx >= 1 && idx <= len(detectedKeys) {
+				keyPath = detectedKeys[idx-1]
+			}
 		}
 		// else fall through to manual input
 	}
@@ -298,7 +287,7 @@ func promptSSHKey(globalCfg *config.GlobalConfig, detectedKeys []string) (string
 		if err != nil {
 			return "", "", err
 		}
-		expanded, err := expandPath(path)
+		expanded, err := config.ExpandPath(path)
 		if err != nil {
 			return "", "", err
 		}
@@ -377,33 +366,6 @@ func promptToken(globalCfg *config.GlobalConfig) (string, string, error) {
 
 	fmt.Printf("\n%s Token configured for enterprise access\n", green("✓"))
 	return token, "", nil
-}
-
-// expandPath expands ~ to the user's home directory
-func expandPath(path string) (string, error) {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-	return filepath.Abs(path)
-}
-
-// maskToken shows only the prefix and last 4 chars of a token
-func maskToken(token string) string {
-	if len(token) <= 8 {
-		return "****"
-	}
-	prefixEnd := 4
-	if strings.HasPrefix(token, "github_pat_") {
-		prefixEnd = 11
-	}
-	visible := token[:prefixEnd]
-	last4 := token[len(token)-4:]
-	masked := len(token) - prefixEnd - 4
-	return visible + strings.Repeat(string("*"[0]), masked) + last4
 }
 
 func printCreateSummary(state *config.State) {
