@@ -75,7 +75,9 @@ func runReset(cmd *cobra.Command, args []string) error {
 	if flagResetVolumes {
 		downArgs = append(downArgs, "-v")
 	}
-	docker.Compose(state, downArgs...)
+	if err := docker.Compose(state, downArgs...); err != nil {
+		fmt.Printf("%s Warning: failed to stop containers: %v\n", yellow("!"), err)
+	}
 
 	// Remove environment directory if requested
 	if flagResetFiles {

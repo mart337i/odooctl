@@ -2,9 +2,9 @@ package docker
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/egeskov/odooctl/internal/docker"
+	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -67,8 +67,7 @@ func runTest(cmd *cobra.Command, args []string) error {
 	cyan := color.New(color.FgCyan).SprintFunc()
 
 	// Build odoo-bin command
-	versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
-	database := "odoo-" + versionSuffix
+	database := state.DBName()
 
 	testArgs := []string{
 		"run", "--rm", "odoo",
@@ -100,10 +99,8 @@ func runTest(cmd *cobra.Command, args []string) error {
 	// Warn if no modules or tags specified
 	if flagTestModules == "" && flagTestTags == "" {
 		fmt.Printf("%s No modules or test-tags specified. This will run ALL tests!\n", color.YellowString("⚠️"))
-		fmt.Print("Continue? [y/N]: ")
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+		confirmed, err := prompt.Confirm("Continue?", false)
+		if err != nil || !confirmed {
 			fmt.Println("Test cancelled.")
 			return nil
 		}

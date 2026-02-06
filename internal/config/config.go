@@ -6,11 +6,13 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const StateFileName = ".odooctl-state.json"
 const GlobalConfigFileName = "config.json"
+const MarkerFileName = ".odooctl"
 
 // GlobalConfig holds user-level settings shared across all environments
 type GlobalConfig struct {
@@ -216,7 +218,14 @@ func (s *State) Save() error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, StateFileName), data, 0644)
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), data, 0600); err != nil {
+		return err
+	}
+
+	// Write marker file in project root for fast lookup
+	markerPath := filepath.Join(s.ProjectRoot, MarkerFileName)
+	markerData := []byte(dir)
+	return os.WriteFile(markerPath, markerData, 0644)
 }
 
 // Load reads state from the environment directory
@@ -240,8 +249,29 @@ func Load(projectName, branch string) (*State, error) {
 }
 
 // LoadFromDir tries to find state by looking for .odooctl-state.json in project dir
-// It searches through ~/.odooctl/{project}/{branch}/ directories
+// It first checks for a marker file in the project root for O(1) lookup.
+// If the marker is missing or stale, it falls back to scanning all environments.
 func LoadFromDir(dir string) (*State, error) {
+	// Fast path: Check for marker file in project root
+	markerPath := filepath.Join(dir, MarkerFileName)
+	if markerData, err := os.ReadFile(markerPath); err == nil {
+		envDir := strings.TrimSpace(string(markerData))
+		statePath := filepath.Join(envDir, StateFileName)
+
+		// Verify the marker is still valid
+		if data, err := os.ReadFile(statePath); err == nil {
+			var state State
+			if err := json.Unmarshal(data, &state); err == nil {
+				// Check if state still points to this directory
+				if state.ProjectRoot == dir {
+					return &state, nil
+				}
+			}
+		}
+		// Marker is stale, will be updated on next save
+	}
+
+	// Slow path: Scan all environments (fallback for compatibility)
 	configDir, err := ConfigDir()
 	if err != nil {
 		return nil, err
@@ -277,10 +307,22 @@ func LoadFromDir(dir string) (*State, error) {
 			}
 
 			if state.ProjectRoot == dir {
+				// Update marker file for future fast lookups
+				if envDir, err := EnvironmentDir(state.ProjectName, state.Branch); err == nil {
+					markerPath := filepath.Join(dir, MarkerFileName)
+					_ = os.WriteFile(markerPath, []byte(envDir), 0644) // Best effort, ignore error
+				}
+
 				return state, nil
 			}
 		}
 	}
 
 	return nil, os.ErrNotExist
+}
+
+// DBName returns the database name for this environment based on the Odoo version
+func (s *State) DBName() string {
+	versionSuffix := strings.Replace(s.OdooVersion, ".", "", 1)
+	return "odoo-" + versionSuffix
 }

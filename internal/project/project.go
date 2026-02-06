@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/egeskov/odooctl/internal/config"
 	"github.com/egeskov/odooctl/internal/git"
 )
 
@@ -20,17 +21,17 @@ type Context struct {
 func Detect(dir string) Context {
 	absDir, _ := filepath.Abs(dir)
 	ctx := Context{
-		Name:   filepath.Base(absDir),
+		Name:   config.SanitizeName(filepath.Base(absDir)),
 		Root:   absDir,
-		Branch: "main",
+		Branch: config.SanitizeName("main"),
 	}
 
 	// Check for git repo
 	gitInfo := git.Detect(dir)
 	if gitInfo.IsRepo {
 		ctx.IsGitRepo = true
-		ctx.Name = gitInfo.RepoName
-		ctx.Branch = gitInfo.Branch
+		ctx.Name = config.SanitizeName(gitInfo.RepoName)
+		ctx.Branch = config.SanitizeName(gitInfo.Branch)
 		ctx.Root = gitInfo.Root
 		ctx.OdooVersion = git.VersionFromBranch(gitInfo.Branch)
 	}

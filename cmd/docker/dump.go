@@ -68,7 +68,7 @@ func runDump(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get database name
-	dbName := getDBNameFromState(state)
+	dbName := state.DBName()
 
 	fmt.Printf("%s Creating backup for project: %s\n", cyan("📦"), state.ProjectName)
 	fmt.Printf("%s Database: %s\n", cyan("📊"), dbName)
@@ -261,9 +261,4 @@ func createZipArchive(sourceDir, outputFile string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
-}
-
-func getDBNameFromState(state *config.State) string {
-	versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
-	return "odoo-" + versionSuffix
 }

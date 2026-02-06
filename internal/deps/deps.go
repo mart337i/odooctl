@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/egeskov/odooctl/internal/module"
+	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
 )
 
@@ -100,10 +101,8 @@ func DiscoverPythonDeps(dirs []string, existingPkgs []string) []string {
 		fmt.Printf("\n%s %s\n", color.YellowString("📦"), pkg)
 		fmt.Printf("   Required by: %s\n", color.HiBlackString(strings.Join(mods, ", ")))
 
-		fmt.Printf("   Include %s? [Y/n]: ", pkg)
-		var response string
-		fmt.Scanln(&response)
-		if response == "" || strings.ToLower(response) == "y" || strings.ToLower(response) == "yes" {
+		confirmed, err := prompt.Confirm(fmt.Sprintf("   Include %s?", pkg), true)
+		if err == nil && confirmed {
 			selected = append(selected, pkg)
 			fmt.Printf("   %s Will install %s\n", color.GreenString("✓"), pkg)
 		} else {

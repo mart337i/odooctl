@@ -1,8 +1,6 @@
 package docker
 
 import (
-	"strings"
-
 	"github.com/egeskov/odooctl/internal/docker"
 	"github.com/spf13/cobra"
 )
@@ -37,8 +35,7 @@ func runShell(cmd *cobra.Command, args []string) error {
 
 	if flagOdooShell {
 		// Odoo shell mode
-		versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
-		database := "odoo-" + versionSuffix
+		database := state.DBName()
 		return docker.Compose(state, "exec", flagService, "odoo", "shell", "-d", database)
 	}
 

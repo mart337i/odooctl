@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/egeskov/odooctl/internal/deps"
 	"github.com/egeskov/odooctl/internal/docker"
 	"github.com/egeskov/odooctl/internal/templates"
+	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -114,7 +114,9 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	// Stop containers if requested
 	if flagReconfigStopFirst {
 		fmt.Println("Stopping containers...")
-		docker.Compose(state, "down")
+		if err := docker.Compose(state, "down"); err != nil {
+			fmt.Printf("%s Warning: failed to stop containers: %v\n", color.YellowString("⚠️"), err)
+		}
 	}
 
 	// Update state
@@ -141,10 +143,8 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("%s Container rebuilt successfully!\n", green("✓"))
 
-		fmt.Print("\nStart containers now? [Y/n]: ")
-		var response string
-		fmt.Scanln(&response)
-		if response == "" || strings.ToLower(response) == "y" || strings.ToLower(response) == "yes" {
+		confirmed, err := prompt.Confirm("\nStart containers now?", true)
+		if err == nil && confirmed {
 			if err := docker.Compose(state, "up", "-d"); err != nil {
 				return fmt.Errorf("failed to start containers: %w", err)
 			}

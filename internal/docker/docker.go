@@ -24,6 +24,11 @@ func Compose(state *config.State, args ...string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
+	// Pass GITHUB_TOKEN as environment variable if using GitHub token for enterprise
+	if state.Enterprise && state.EnterpriseGitHubToken != "" {
+		cmd.Env = append(os.Environ(), fmt.Sprintf("GITHUB_TOKEN=%s", state.EnterpriseGitHubToken))
+	}
+
 	return cmd.Run()
 }
 
@@ -95,7 +100,7 @@ func PrintStatus(state *config.State) error {
 
 	fmt.Printf("\n%s %s\n", cyan("Project:"), state.ProjectName)
 	fmt.Printf("%s Odoo %s\n", cyan("Version:"), state.OdooVersion)
-	fmt.Printf("%s %s\n\n", cyan("Database:"), getDBNameFromState(state))
+	fmt.Printf("%s %s\n\n", cyan("Database:"), state.DBName())
 
 	services, err := GetServicesStatus(state)
 	if err != nil || len(services) == 0 {
@@ -142,9 +147,4 @@ func PrintStatus(state *config.State) error {
 	}
 
 	return nil
-}
-
-func getDBNameFromState(state *config.State) string {
-	versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
-	return "odoo-" + versionSuffix
 }

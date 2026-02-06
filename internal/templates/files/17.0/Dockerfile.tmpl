@@ -93,9 +93,10 @@ RUN pip3 install --no-cache-dir \
 {{if .Enterprise}}
 # Clone Odoo Enterprise
 {{if .EnterpriseGitHubToken}}
-# Using GitHub Personal Access Token
-RUN git clone --depth 1 --branch {{.OdooVersion}} \
-    https://{{.EnterpriseGitHubToken}}@github.com/odoo/enterprise.git /mnt/enterprise && \
+# Using GitHub Personal Access Token (mounted as build secret)
+RUN --mount=type=secret,id=github_token bash -c 'GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone --depth 1 --branch {{.OdooVersion}} \
+    https://${GITHUB_TOKEN}@github.com/odoo/enterprise.git /mnt/enterprise' && \
     chown -R odoo:odoo /mnt/enterprise && \
     chmod -R 755 /mnt/enterprise
 {{else if .EnterpriseSSHKeyPath}}

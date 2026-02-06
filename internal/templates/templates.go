@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -62,15 +63,39 @@ func NewData(state *config.State) Data {
 }
 
 // getTemplatePath returns the version-specific template path if it exists,
-// otherwise returns the base template path
+// otherwise returns the base template path. For v19+, it falls back to 19.0 templates
+// to ensure proper demo data handling (inverted behavior in v19+).
 func getTemplatePath(version, filename string) string {
-	// Check for version-specific template first
+	// Check for exact version-specific template first
 	versionPath := fmt.Sprintf("files/%s/%s", version, filename)
 	if _, err := templateFS.ReadFile(versionPath); err == nil {
 		return versionPath
 	}
+
+	// For v19+, fall back to 19.0 template if it exists (handles demo inversion)
+	if isVersion19OrHigher(version) {
+		v19Path := fmt.Sprintf("files/19.0/%s", filename)
+		if _, err := templateFS.ReadFile(v19Path); err == nil {
+			return v19Path
+		}
+	}
+
 	// Fall back to base template
 	return fmt.Sprintf("files/%s", filename)
+}
+
+// isVersion19OrHigher checks if the version is 19.0 or higher
+func isVersion19OrHigher(version string) bool {
+	// Extract major version (e.g., "19.0" -> 19, "20.0" -> 20)
+	parts := strings.Split(version, ".")
+	if len(parts) == 0 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	return major >= 19
 }
 
 // Render generates all Docker files to the environment directory
