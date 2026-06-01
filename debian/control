@@ -4,9 +4,9 @@ Priority: optional
 Maintainer: mart337i <mart337i@gmail.com>
 Build-Depends: debhelper-compat (= 13), golang-go (>= 1.22)
 Standards-Version: 4.6.0
-Homepage: https://github.com/egeskov/odooctl
-Vcs-Browser: https://github.com/egeskov/odooctl
-Vcs-Git: https://github.com/egeskov/odooctl.git
+Homepage: https://github.com/mart337i/odooctl
+Vcs-Browser: https://github.com/mart337i/odooctl
+Vcs-Git: https://github.com/mart337i/odooctl.git
 Rules-Requires-Root: no
 
 Package: odooctl

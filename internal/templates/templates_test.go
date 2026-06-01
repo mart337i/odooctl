@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/egeskov/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/config"
 )
 
 func TestRenderDockerfileUsesVenvForPipPackages(t *testing.T) {

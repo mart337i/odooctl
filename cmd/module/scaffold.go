@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/egeskov/odooctl/internal/odoo"
-	"github.com/egeskov/odooctl/internal/project"
-	"github.com/egeskov/odooctl/internal/scaffold"
-	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/project"
+	"github.com/mart337i/odooctl/internal/scaffold"
+	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
 )
 

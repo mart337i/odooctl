@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/egeskov/odooctl/internal/module"
-	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/module"
+	"github.com/mart337i/odooctl/pkg/prompt"
 )
 
 // ParsePipPackages parses pip packages from comma-separated string or requirements.txt file

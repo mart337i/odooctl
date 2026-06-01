@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/egeskov/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/config"
 )
 
 //go:embed files/* files/12.0/* files/13.0/* files/14.0/* files/15.0/* files/16.0/* files/17.0/* files/19.0/*

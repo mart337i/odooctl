@@ -7,8 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/egeskov/odooctl/internal/config"
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/config"
 )
 
 // Compose runs docker compose commands

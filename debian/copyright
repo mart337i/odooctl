@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: odooctl
 Upstream-Contact: egeskov <egeskov@users.noreply.github.com>
-Source: https://github.com/egeskov/odooctl
+Source: https://github.com/mart337i/odooctl
 
 Files: *
 Copyright: 2024-2026 egeskov

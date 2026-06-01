@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/egeskov/odooctl/cmd/docker"
-	"github.com/egeskov/odooctl/cmd/module"
+	"github.com/mart337i/odooctl/cmd/docker"
+	"github.com/mart337i/odooctl/cmd/module"
 	"github.com/spf13/cobra"
 )
 

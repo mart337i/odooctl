@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/egeskov/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/odoo"
 )
 
 // Info contains git repository information

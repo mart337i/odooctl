@@ -5,7 +5,7 @@ export GOCACHE = $(CURDIR)/.gocache
 export GOFLAGS = -mod=vendor
 
 VERSION := $(shell dpkg-parsechangelog -S Version | cut -d- -f1)
-LDFLAGS := -ldflags "-X github.com/egeskov/odooctl/cmd.version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/mart337i/odooctl/cmd.version=$(VERSION)"
 
 %:
 	dh $@

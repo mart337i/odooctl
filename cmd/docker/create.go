@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/egeskov/odooctl/internal/config"
-	"github.com/egeskov/odooctl/internal/deps"
-	"github.com/egeskov/odooctl/internal/odoo"
-	"github.com/egeskov/odooctl/internal/project"
-	"github.com/egeskov/odooctl/internal/templates"
-	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/deps"
+	"github.com/mart337i/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/project"
+	"github.com/mart337i/odooctl/internal/templates"
+	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
 )
 

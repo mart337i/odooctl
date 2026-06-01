@@ -1,6 +1,6 @@
 package main
 
-import "github.com/egeskov/odooctl/cmd"
+import "github.com/mart337i/odooctl/cmd"
 
 func main() {
 	cmd.Execute()

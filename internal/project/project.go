@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/egeskov/odooctl/internal/config"
-	"github.com/egeskov/odooctl/internal/git"
+	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/git"
 )
 
 // Context holds all project detection results

@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/egeskov/odooctl/internal/config"
-	"github.com/egeskov/odooctl/internal/docker"
-	"github.com/egeskov/odooctl/pkg/prompt"
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/docker"
+	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
 )
 

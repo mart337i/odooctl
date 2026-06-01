@@ -1,7 +1,7 @@
 .PHONY: build build-all clean test install fmt vet lint checksums
 
 VERSION := $(shell git update-index --refresh >/dev/null 2>&1; git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -ldflags "-X github.com/egeskov/odooctl/cmd.version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/mart337i/odooctl/cmd.version=$(VERSION)"
 
 # Build for current platform
 build:

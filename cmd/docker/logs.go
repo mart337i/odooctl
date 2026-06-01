@@ -3,7 +3,7 @@ package docker
 import (
 	"fmt"
 
-	"github.com/egeskov/odooctl/internal/docker"
+	"github.com/mart337i/odooctl/internal/docker"
 	"github.com/spf13/cobra"
 )
 

@@ -2,7 +2,7 @@ package prompt
 
 import (
 	"github.com/AlecAivazis/survey/v2"
-	"github.com/egeskov/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/odoo"
 )
 
 // SelectVersion prompts user to select an Odoo version

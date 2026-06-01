@@ -1,4 +1,4 @@
-module github.com/egeskov/odooctl
+module github.com/mart337i/odooctl
 
 go 1.22
 
