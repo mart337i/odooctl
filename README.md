@@ -397,14 +397,14 @@ All environment state stored in `~/.odooctl/{project}/{branch}/.odooctl-state.js
 
 ### Docker Container Design
 
-**Why `--break-system-packages` in Dockerfile?**
+**Why use a Python virtual environment in Dockerfile?**
 
-The generated Dockerfile uses `pip install --break-system-packages`. This is intentional for container environments:
+The generated Dockerfile installs extra pip packages into `/opt/odoo-venv` instead of the system Python environment:
 
-- No virtual environment needed (container is already isolated)
-- Faster build times (no venv overhead)
-- Simpler Dockerfile (direct pip install)
-- Container gets destroyed anyway (no system pollution)
+- Avoids conflicts with apt-managed Odoo dependencies
+- Avoids PEP 668 `--break-system-packages` failures on newer base images
+- Keeps user-requested pip packages isolated and first on Odoo's Python path
+- Still exposes apt-installed Odoo packages through `--system-site-packages`
 
 **Included Tools:**
 - Python 3 + pip

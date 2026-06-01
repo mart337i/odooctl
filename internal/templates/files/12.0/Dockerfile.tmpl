@@ -39,6 +39,7 @@ RUN apt-get update && \
         python3-passlib \
         python3-pil \
         python3-pip \
+        python3-venv \
         python3-polib \
         python3-psutil \
         python3-psycopg2 \
@@ -98,10 +99,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir \
-    debugpy \
-    ipython{{if .PipPackages}} \
-    {{.PipPackages}}{{end}}
+RUN python3 -m venv --system-site-packages /opt/odoo-venv \
+    && /opt/odoo-venv/bin/pip install --no-cache-dir \
+        debugpy \
+        ipython{{if .PipPackages}} \
+        {{.PipPackages}}{{end}} \
+    && printf '%s\n' \
+        '#!/bin/sh' \
+        'exec /opt/odoo-venv/bin/python3 /usr/bin/odoo "$@"' \
+        > /opt/odoo-venv/bin/odoo \
+    && chmod +x /opt/odoo-venv/bin/odoo
+
+ENV PATH="/opt/odoo-venv/bin:${PATH}"
 
 {{if .Enterprise}}
 # Clone Odoo Enterprise

@@ -191,15 +191,20 @@ resolve_binary() {
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     local local_bin="$script_dir/bin/odooctl"
 
-    if [ -x "$local_bin" ]; then
+    if [ -f "$script_dir/go.mod" ] && command -v go &>/dev/null; then
+        echo -e "${CYAN}Building current odooctl binary...${NC}"
+        mkdir -p "$script_dir/bin"
+        (cd "$script_dir" && go build -o "$local_bin" .)
         ODOOCTL="$local_bin"
     elif command -v odooctl &>/dev/null; then
         ODOOCTL="$(command -v odooctl)"
+    elif [ -x "$local_bin" ]; then
+        ODOOCTL="$local_bin"
     else
         echo -e "${RED}Error: odooctl binary not found.${NC}"
         echo "  Looked in: $local_bin"
         echo "  Also checked: \$PATH"
-        echo "  Build it first: make build"
+        echo "  Install Go or build it first: make build"
         exit 1
     fi
 }
@@ -352,13 +357,30 @@ else
     fi
 fi
 
+DOCKERFILE_PATH=""
 if [ -f "$ENV_DIR/docker/Dockerfile" ]; then
+    DOCKERFILE_PATH="$ENV_DIR/docker/Dockerfile"
     pass "Dockerfile generated"
 else
     if [ -f "$ENV_DIR/Dockerfile" ]; then
+        DOCKERFILE_PATH="$ENV_DIR/Dockerfile"
         pass "Dockerfile generated"
     else
         fail "Dockerfile generated" "not found"
+    fi
+fi
+
+if [ -n "$DOCKERFILE_PATH" ]; then
+    if grep -q -- "--break-system-packages" "$DOCKERFILE_PATH"; then
+        fail "Dockerfile avoids system pip override" "contains --break-system-packages"
+    else
+        pass "Dockerfile avoids system pip override"
+    fi
+
+    if grep -q -- "/opt/odoo-venv/bin/pip install" "$DOCKERFILE_PATH"; then
+        pass "Dockerfile installs pip packages in venv"
+    else
+        fail "Dockerfile installs pip packages in venv" "missing /opt/odoo-venv pip install"
     fi
 fi
 
