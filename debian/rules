@@ -4,7 +4,9 @@ export DH_VERBOSE = 1
 export GOCACHE = $(CURDIR)/.gocache
 export GOFLAGS = -mod=vendor
 
-VERSION := $(shell dpkg-parsechangelog -S Version | cut -d- -f1)
+# PPA uploads use native versions like 2.0.12+noble1 to avoid source tarball
+# collisions across Ubuntu series. Embed the upstream version in the binary.
+VERSION := $(shell dpkg-parsechangelog -S Version | sed 's/[+~].*//; s/-.*//')
 LDFLAGS := -ldflags "-X github.com/mart337i/odooctl/cmd.version=$(VERSION)"
 
 %:

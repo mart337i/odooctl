@@ -123,12 +123,16 @@ jobs:
         env:
           GPG_EMAIL: ${{ secrets.GPG_EMAIL }}
         run: |
-          VERSION="${{ needs.release.outputs.new_version }}"
+          UPSTREAM_VERSION="${{ needs.release.outputs.new_version }}"
           DISTRO="${{ matrix.distro }}"
+          DEB_VERSION="${UPSTREAM_VERSION}+${DISTRO}1"
           DATE=$(date -R)
+          # Native source packages use odooctl_${version}.tar.xz. Include the
+          # Ubuntu series in the version so jammy and noble uploads do not
+          # collide in Launchpad with different tarball contents.
           # Debian changelog format is strict about whitespace.
           printf 'odooctl (%s) %s; urgency=medium\n\n  * Release %s\n\n -- mart337i <%s>  %s\n' \
-            "$VERSION" "$DISTRO" "$VERSION" "$GPG_EMAIL" "$DATE" \
+            "$DEB_VERSION" "$DISTRO" "$UPSTREAM_VERSION" "$GPG_EMAIL" "$DATE" \
             > debian/changelog
           echo "--- debian/changelog ---"
           cat debian/changelog
