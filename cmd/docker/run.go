@@ -3,6 +3,8 @@ package docker
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -99,6 +101,16 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if flagRunBuild || flagRunInit {
+		refreshed, err := refreshStaleDockerfile(state)
+		if err != nil {
+			return fmt.Errorf("failed to refresh Docker configuration: %w", err)
+		}
+		if refreshed {
+			fmt.Printf("%s Refreshed Docker configuration to avoid system pip conflicts\n", green("✓"))
+		}
+	}
+
 	fmt.Println("Starting containers...")
 	// Start main containers
 	upArgs := []string{"up"}
@@ -169,6 +181,31 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func refreshStaleDockerfile(state *config.State) (bool, error) {
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+	if err != nil {
+		return false, err
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	dockerfile := string(content)
+	if !strings.Contains(dockerfile, "--break-system-packages") && !strings.Contains(dockerfile, "RUN pip3 install") {
+		return false, nil
+	}
+
+	if err := templates.Render(state); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func loadState() (*config.State, error) {
