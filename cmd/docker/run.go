@@ -23,8 +23,9 @@ var (
 )
 
 var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Start the Docker development environment",
+	Use:          "run",
+	Short:        "Start the Docker development environment",
+	SilenceUsage: true,
 	Long: `Start the Docker development environment.
 
 By default, just starts the containers. Use -i to initialize the database first.
@@ -46,6 +47,9 @@ func init() {
 func runRun(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
+		return err
+	}
+	if err := ensureDockerProjectAccess(state); err != nil {
 		return err
 	}
 
@@ -123,6 +127,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	if err := docker.Compose(state, upArgs...); err != nil {
 		return fmt.Errorf("failed to start containers: %w", err)
+	}
+	depsSynced, err := ensureConfiguredPythonDepsSynced(state)
+	if err != nil {
+		return err
+	}
+	if depsSynced {
+		if err := docker.Compose(state, "up", "-d", "odoo"); err != nil {
+			return fmt.Errorf("failed to restart Odoo after dependency sync: %w", err)
+		}
 	}
 
 	// Track that build has been done

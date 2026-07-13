@@ -25,4 +25,5 @@ func init() {
 	Cmd.AddCommand(odooBinCmd)
 	Cmd.AddCommand(shellCmd)
 	Cmd.AddCommand(dumpCmd)
+	Cmd.AddCommand(depsCmd)
 }

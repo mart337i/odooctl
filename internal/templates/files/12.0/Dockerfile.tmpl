@@ -74,7 +74,7 @@ RUN apt-get update && \
     && apt-get install -y --no-install-recommends ./wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/* wkhtmltox.deb
 
-RUN npm install -g rtlcss
+RUN --mount=type=cache,target=/root/.npm npm install -g rtlcss
 
 ENV ODOO_VERSION={{.OdooVersion}}
 ARG ODOO_RELEASE=latest
@@ -99,11 +99,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3 -m venv --system-site-packages /opt/odoo-venv \
-    && /opt/odoo-venv/bin/pip install --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m venv --system-site-packages /opt/odoo-venv \
+    && /opt/odoo-venv/bin/pip install \
         debugpy \
-        ipython{{if .PipPackages}} \
-        {{.PipPackages}}{{end}} \
+        ipython \
     && printf '%s\n' \
         '#!/bin/sh' \
         'exec /opt/odoo-venv/bin/python3 /usr/bin/odoo "$@"' \
@@ -154,7 +154,9 @@ RUN mkdir -p /etc/odoo \
     && chown -R odoo /mnt/extra-addons \
     && mkdir -p /var/lib/odoo/.local/share/Odoo/sessions \
     && mkdir -p /var/lib/odoo/filestore \
+    && mkdir -p /opt/odoo-extra-python \
     && chown -R odoo:odoo /var/lib/odoo \
+    && chown -R odoo:odoo /opt/odoo-extra-python \
     && chmod -R 755 /var/lib/odoo \
     && chmod +x /entrypoint.sh \
     && chmod +x /usr/local/bin/wait-for-psql.py

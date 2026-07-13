@@ -9,7 +9,7 @@ import (
 	"github.com/mart337i/odooctl/internal/config"
 )
 
-func TestRenderDockerfileUsesVenvForPipPackages(t *testing.T) {
+func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 	versions := []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0"}
 
 	for _, version := range versions {
@@ -53,14 +53,34 @@ func TestRenderDockerfileUsesVenvForPipPackages(t *testing.T) {
 			for _, required := range []string{
 				"python3-venv",
 				"python3 -m venv --system-site-packages /opt/odoo-venv",
-				"/opt/odoo-venv/bin/pip install --no-cache-dir",
-				"requests==2.31.0",
-				"pandas>=2.0",
+				"--mount=type=cache,target=/root/.cache/pip",
+				"/opt/odoo-venv/bin/pip install",
+				"/opt/odoo-extra-python",
 				"exec /opt/odoo-venv/bin/python3 /usr/bin/odoo \"$@\"",
 				"ENV PATH=\"/opt/odoo-venv/bin:${PATH}\"",
 			} {
 				if !strings.Contains(dockerfile, required) {
 					t.Fatalf("Dockerfile missing required venv pattern %q", required)
+				}
+			}
+			for _, runtimeOnly := range []string{"requests==2.31.0", "pandas>=2.0"} {
+				if strings.Contains(dockerfile, runtimeOnly) {
+					t.Fatalf("Dockerfile contains runtime pip package %q", runtimeOnly)
+				}
+			}
+
+			composeContent, err := os.ReadFile(filepath.Join(envDir, "docker-compose.yml"))
+			if err != nil {
+				t.Fatalf("ReadFile(docker-compose.yml) error = %v", err)
+			}
+			compose := string(composeContent)
+			for _, required := range []string{
+				"PYTHONPATH: /opt/odoo-extra-python",
+				"odoo-pydeps-" + strings.Replace(version, ".", "", 1),
+				":/opt/odoo-extra-python",
+			} {
+				if !strings.Contains(compose, required) {
+					t.Fatalf("docker-compose.yml missing runtime dependency pattern %q", required)
 				}
 			}
 		})

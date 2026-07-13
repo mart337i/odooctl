@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
 	"github.com/mart337i/odooctl/internal/templates"
@@ -19,6 +20,7 @@ var (
 	flagReconfigAutoDiscover bool
 	flagReconfigRebuild      bool
 	flagReconfigStopFirst    bool
+	flagReconfigNoCache      bool
 )
 
 var reconfigureCmd = &cobra.Command{
@@ -51,6 +53,7 @@ func init() {
 	reconfigureCmd.Flags().BoolVar(&flagReconfigAutoDiscover, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigRebuild, "rebuild", true, "Rebuild container after reconfiguring")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigStopFirst, "stop-first", true, "Stop containers before reconfiguring")
+	reconfigureCmd.Flags().BoolVar(&flagReconfigNoCache, "no-cache", false, "Rebuild without Docker layer cache")
 }
 
 func runReconfigure(cmd *cobra.Command, args []string) error {
@@ -66,12 +69,14 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	// Parse new pip packages
 	newPipPackages := make([]string, len(state.PipPackages))
 	copy(newPipPackages, state.PipPackages)
+	var addedPipPackages []string
 
 	if flagReconfigAddPip != "" {
 		addedPkgs := deps.ParsePipPackages(flagReconfigAddPip)
 		for _, pkg := range addedPkgs {
 			if !contains(newPipPackages, pkg) {
 				newPipPackages = append(newPipPackages, pkg)
+				addedPipPackages = append(addedPipPackages, pkg)
 				fmt.Printf("%s Adding pip package: %s\n", cyan("📦"), pkg)
 			}
 		}
@@ -102,7 +107,9 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 		scanDirs := []string{state.ProjectRoot}
 		scanDirs = append(scanDirs, newAddonsPaths...)
 		discoveredPkgs := deps.DiscoverPythonDeps(scanDirs, newPipPackages)
-		newPipPackages = append(newPipPackages, discoveredPkgs...)
+		var added []string
+		newPipPackages, added = deps.MergePackages(newPipPackages, discoveredPkgs)
+		addedPipPackages = append(addedPipPackages, added...)
 	}
 
 	// Check if anything changed
@@ -128,9 +135,19 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to render templates: %w", err)
 	}
 
-	// Save updated state
+	if len(addedPipPackages) > 0 {
+		if err := syncPythonDeps(state, addedPipPackages); err != nil {
+			return err
+		}
+		markPythonDepsSynced(state)
+	}
+
+	// Save updated state after runtime dependency sync succeeds.
 	if err := state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+	if err := config.SaveProjectLink(state); err != nil {
+		return fmt.Errorf("failed to save project link: %w", err)
 	}
 
 	fmt.Printf("\n%s Docker configuration updated!\n", green("✓"))
@@ -138,7 +155,11 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	// Rebuild if requested
 	if flagReconfigRebuild {
 		fmt.Println("\nRebuilding container...")
-		if err := docker.Compose(state, "build", "--no-cache"); err != nil {
+		buildArgs := []string{"build"}
+		if flagReconfigNoCache {
+			buildArgs = append(buildArgs, "--no-cache")
+		}
+		if err := docker.Compose(state, buildArgs...); err != nil {
 			return fmt.Errorf("failed to rebuild: %w", err)
 		}
 		fmt.Printf("%s Container rebuilt successfully!\n", green("✓"))

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,7 +14,9 @@ import (
 
 const StateFileName = ".odooctl-state.json"
 const GlobalConfigFileName = "config.json"
-const MarkerFileName = ".odooctl"
+const ProjectLinksDirName = "projects"
+
+const legacyMarkerFileName = ".odooctl"
 
 // GlobalConfig holds user-level settings shared across all environments
 type GlobalConfig struct {
@@ -77,6 +81,14 @@ type Ports struct {
 	Debug   int `json:"debug"`
 }
 
+type ProjectLink struct {
+	ProjectRoot string    `json:"project_root"`
+	EnvDir      string    `json:"env_dir"`
+	ProjectName string    `json:"project_name"`
+	Branch      string    `json:"branch"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 type State struct {
 	ProjectName           string     `json:"project_name"`
 	OdooVersion           string     `json:"odoo_version"`
@@ -89,6 +101,8 @@ type State struct {
 	EnterpriseSSHKeyPath  string     `json:"enterprise_ssh_key_path,omitempty"` // Path to SSH private key for enterprise repo
 	WithoutDemo           bool       `json:"without_demo"`
 	PipPackages           []string   `json:"pip_packages"`
+	PythonDepsHash        string     `json:"python_deps_hash,omitempty"`
+	PythonDepsSyncedAt    *time.Time `json:"python_deps_synced_at,omitempty"`
 	AddonsPaths           []string   `json:"addons_paths"`
 	Ports                 Ports      `json:"ports"`
 	CreatedAt             time.Time  `json:"created_at"`
@@ -134,6 +148,91 @@ func EnvironmentExists(projectName, branch string) bool {
 	statePath := filepath.Join(dir, StateFileName)
 	_, err = os.Stat(statePath)
 	return err == nil
+}
+
+func ProjectLinksDir() (string, error) {
+	configDir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(configDir, ProjectLinksDirName), nil
+}
+
+func ProjectLinkPath(projectRoot string) (string, error) {
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256([]byte(filepath.Clean(absRoot)))
+	dir, err := ProjectLinksDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, hex.EncodeToString(hash[:])+".json"), nil
+}
+
+func SaveProjectLink(state *State) error {
+	envDir, err := EnvironmentDir(state.ProjectName, state.Branch)
+	if err != nil {
+		return err
+	}
+	absRoot, err := filepath.Abs(state.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	absRoot = filepath.Clean(absRoot)
+	path, err := ProjectLinkPath(state.ProjectRoot)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+
+	link := ProjectLink{
+		ProjectRoot: absRoot,
+		EnvDir:      envDir,
+		ProjectName: state.ProjectName,
+		Branch:      state.Branch,
+		UpdatedAt:   time.Now(),
+	}
+	data, err := json.MarshalIndent(link, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return err
+	}
+	cleanupLegacyMarker(state.ProjectRoot)
+	return nil
+}
+
+func LoadProjectLink(projectRoot string) (*ProjectLink, error) {
+	path, err := ProjectLinkPath(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var link ProjectLink
+	if err := json.Unmarshal(data, &link); err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func RemoveProjectLink(projectRoot string) error {
+	path, err := ProjectLinkPath(projectRoot)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	cleanupLegacyMarker(projectRoot)
+	return nil
 }
 
 // CalculatePorts calculates ports based on Odoo version
@@ -218,14 +317,7 @@ func (s *State) Save() error {
 		return err
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), data, 0600); err != nil {
-		return err
-	}
-
-	// Write marker file in project root for fast lookup
-	markerPath := filepath.Join(s.ProjectRoot, MarkerFileName)
-	markerData := []byte(dir)
-	return os.WriteFile(markerPath, markerData, 0644)
+	return os.WriteFile(filepath.Join(dir, StateFileName), data, 0600)
 }
 
 // Load reads state from the environment directory
@@ -248,27 +340,27 @@ func Load(projectName, branch string) (*State, error) {
 	return &state, nil
 }
 
-// LoadFromDir tries to find state by looking for .odooctl-state.json in project dir
-// It first checks for a marker file in the project root for O(1) lookup.
-// If the marker is missing or stale, it falls back to scanning all environments.
+// LoadFromDir finds state for a project directory using global project links.
+// It never reads or writes repo-local marker files.
 func LoadFromDir(dir string) (*State, error) {
-	// Fast path: Check for marker file in project root
-	markerPath := filepath.Join(dir, MarkerFileName)
-	if markerData, err := os.ReadFile(markerPath); err == nil {
-		envDir := strings.TrimSpace(string(markerData))
-		statePath := filepath.Join(envDir, StateFileName)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	absDir = filepath.Clean(absDir)
 
-		// Verify the marker is still valid
-		if data, err := os.ReadFile(statePath); err == nil {
-			var state State
-			if err := json.Unmarshal(data, &state); err == nil {
-				// Check if state still points to this directory
-				if state.ProjectRoot == dir {
-					return &state, nil
-				}
-			}
+	for _, candidate := range parentDirs(absDir) {
+		link, err := LoadProjectLink(candidate)
+		if err != nil {
+			continue
 		}
-		// Marker is stale, will be updated on next save
+		state, err := loadStateFromEnvDir(link.EnvDir)
+		if err != nil {
+			continue
+		}
+		if sameOrChild(absDir, state.ProjectRoot) {
+			return state, nil
+		}
 	}
 
 	// Slow path: Scan all environments (fallback for compatibility)
@@ -280,11 +372,14 @@ func LoadFromDir(dir string) (*State, error) {
 	// Iterate over project directories
 	projectEntries, err := os.ReadDir(configDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, os.ErrNotExist
+		}
 		return nil, err
 	}
 
 	for _, projectEntry := range projectEntries {
-		if !projectEntry.IsDir() {
+		if !projectEntry.IsDir() || projectEntry.Name() == ProjectLinksDirName {
 			continue
 		}
 
@@ -306,19 +401,72 @@ func LoadFromDir(dir string) (*State, error) {
 				continue
 			}
 
-			if state.ProjectRoot == dir {
-				// Update marker file for future fast lookups
-				if envDir, err := EnvironmentDir(state.ProjectName, state.Branch); err == nil {
-					markerPath := filepath.Join(dir, MarkerFileName)
-					_ = os.WriteFile(markerPath, []byte(envDir), 0644) // Best effort, ignore error
-				}
-
+			if sameOrChild(absDir, state.ProjectRoot) {
+				_ = SaveProjectLink(state)
 				return state, nil
 			}
 		}
 	}
 
 	return nil, os.ErrNotExist
+}
+
+func loadStateFromEnvDir(envDir string) (*State, error) {
+	data, err := os.ReadFile(filepath.Join(envDir, StateFileName))
+	if err != nil {
+		return nil, err
+	}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
+}
+
+func parentDirs(dir string) []string {
+	var dirs []string
+	for {
+		dirs = append(dirs, dir)
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dirs
+		}
+		dir = parent
+	}
+}
+
+func sameOrChild(path, root string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	absPath = filepath.Clean(absPath)
+	absRoot = filepath.Clean(absRoot)
+	if absPath == absRoot {
+		return true
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func cleanupLegacyMarker(projectRoot string) {
+	markerPath := filepath.Join(projectRoot, legacyMarkerFileName)
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		return
+	}
+	configDir, err := ConfigDir()
+	if err != nil {
+		return
+	}
+	markerTarget := strings.TrimSpace(string(data))
+	if sameOrChild(markerTarget, configDir) {
+		_ = os.Remove(markerPath)
+	}
 }
 
 // DBName returns the database name for this environment based on the Odoo version

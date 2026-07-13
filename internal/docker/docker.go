@@ -5,11 +5,54 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
 )
+
+// CheckDaemon verifies that the Docker client can reach a running daemon.
+func CheckDaemon() error {
+	cmd := exec.Command("docker", "info", "--format", "{{.ServerVersion}}")
+	output, err := cmd.CombinedOutput()
+	return formatDaemonCheckError(strings.TrimSpace(string(output)), err)
+}
+
+func formatDaemonCheckError(output string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if output == "" {
+		output = err.Error()
+	}
+	return fmt.Errorf("Docker daemon is not available: %s\nStart Docker Desktop or the Docker service, then retry", output)
+}
+
+// CheckBindMount verifies that Docker can see files from a host directory.
+func CheckBindMount(hostDir string) error {
+	marker, err := os.CreateTemp(hostDir, ".odooctl-bind-check-*")
+	if err != nil {
+		return fmt.Errorf("failed to create bind-mount check file in %s: %w", hostDir, err)
+	}
+	markerName := filepath.Base(marker.Name())
+	_ = marker.Close()
+	defer os.Remove(marker.Name())
+
+	cmd := exec.Command("docker", "run", "--rm", "-v", hostDir+":/mnt/odooctl-bind-check:ro", "alpine:latest", "test", "-f", "/mnt/odooctl-bind-check/"+markerName)
+	output, err := cmd.CombinedOutput()
+	return formatBindMountCheckError(hostDir, strings.TrimSpace(string(output)), err)
+}
+
+func formatBindMountCheckError(hostDir, output string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if output != "" {
+		output = ": " + output
+	}
+	return fmt.Errorf("Docker cannot access files under %s%s\nEnable Docker Desktop WSL integration for this distro or fix Docker file sharing, then retry", hostDir, output)
+}
 
 // Compose runs docker compose commands
 func Compose(state *config.State, args ...string) error {
@@ -115,12 +158,12 @@ func PrintStatus(state *config.State) error {
 	fmt.Printf("%-15s %-12s %-20s %s\n", "SERVICE", "STATE", "STATUS", "PORTS")
 	fmt.Println(strings.Repeat("─", 60))
 
-	hasRunning := false
+	runningServices := make(map[string]bool)
 	for _, svc := range services {
 		stateColor := red
 		if svc.State == "running" {
 			stateColor = green
-			hasRunning = true
+			runningServices[svc.Name] = true
 		}
 
 		// Format ports
@@ -139,11 +182,15 @@ func PrintStatus(state *config.State) error {
 	fmt.Println(strings.Repeat("─", 60))
 
 	// Print access URLs if running
-	if hasRunning {
+	if len(runningServices) > 0 {
 		fmt.Printf("\n%s\n", green("Access URLs:"))
-		fmt.Printf("  %s Odoo:    http://localhost:%d\n", cyan("🌐"), state.Ports.Odoo)
-		fmt.Printf("  %s MailHog: http://localhost:%d\n", cyan("📧"), state.Ports.Mailhog)
-		fmt.Printf("  %s Debug:   localhost:%d\n", cyan("🔧"), state.Ports.Debug)
+		if runningServices["odoo"] {
+			fmt.Printf("  %s Odoo:    http://localhost:%d\n", cyan("🌐"), state.Ports.Odoo)
+			fmt.Printf("  %s Debug:   localhost:%d\n", cyan("🔧"), state.Ports.Debug)
+		}
+		if runningServices["mailhog"] {
+			fmt.Printf("  %s MailHog: http://localhost:%d\n", cyan("📧"), state.Ports.Mailhog)
+		}
 	}
 
 	return nil

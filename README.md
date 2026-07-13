@@ -225,6 +225,7 @@ odooctl docker reset -v -c -f
 | `odooctl docker test` | Run Odoo tests with advanced filtering |
 | `odooctl docker shell` | Open bash or Odoo shell in container |
 | `odooctl docker db` | Open PostgreSQL shell |
+| `odooctl docker deps` | Scan, sync, list, or clean Python dependencies |
 | `odooctl docker odoo-bin` | Run odoo-bin commands directly |
 | `odooctl docker stop` | Stop running containers |
 | `odooctl docker reset` | Remove containers, optionally volumes and files |
@@ -238,6 +239,13 @@ odooctl docker reset -v -c -f
 | Command | Description |
 |---------|-------------|
 | `odooctl module scaffold` | Create a new Odoo module with proper structure |
+| `odooctl module list` | List modules discovered in the project/addons paths |
+| `odooctl module deps` | Show manifest module and Python dependencies |
+| `odooctl module manifest` | Inspect a parsed module manifest |
+| `odooctl module changed` | Show local modules whose hashes changed |
+| `odooctl module test` | Run tests for modules using Odoo test tags |
+| `odooctl module upgrade` | Install/update modules through Docker |
+| `odooctl module migrate` | Plan or scaffold module migration files |
 
 ## Advanced Features
 
@@ -273,17 +281,37 @@ odooctl docker install --update-all
 
 ### Automatic Python Dependency Discovery
 
-When creating or reconfiguring environments:
+`odooctl docker create` does not scan or prompt for module Python dependencies by default. That keeps environment creation predictable and avoids dependency-install failures during startup.
+
+Use explicit dependency commands when you want to inspect or sync dependencies:
+
+During `odooctl docker install`, odooctl also scans the modules being installed
+or updated. Missing `external_dependencies['python']` packages are installed into
+a persistent runtime dependency volume before Odoo runs the module install/update.
+Local development defaults to `--deps-mode runtime`; when `CI=true`, the default
+switches to `fail` so CI reports missing dependencies instead of mutating the
+environment silently.
+
+```bash
+# Scan configured modules/addons paths
+odooctl docker deps scan
+
+# Install missing dependencies into the runtime dependency volume
+odooctl docker deps sync
+
+# Force install explicit packages
+odooctl docker deps sync requests zeep
+
+# Clean the runtime dependency volume
+odooctl docker deps clean
+```
+
+You can still opt in during create or reconfigure:
 
 ```bash
 odooctl docker create --auto-discover-deps
+odooctl docker reconfigure --auto-discover-deps
 ```
-
-**What happens:**
-1. Scans all `__manifest__.py` files for `external_dependencies['python']`
-2. Lists discovered packages and which modules need them
-3. Prompts you to confirm each package
-4. Adds to Dockerfile for next build
 
 Example manifest:
 ```python
@@ -378,7 +406,9 @@ odooctl docker test --modules my_module --log-level=test:DEBUG
 
 ### State Management
 
-All environment state stored in `~/.odooctl/{project}/{branch}/.odooctl-state.json`:
+Environment state is stored in `~/.odooctl/{project}/{branch}/.odooctl-state.json`.
+Project lookup uses global links in `~/.odooctl/projects/`, keyed by the absolute
+project root. odooctl does not create a repo-local `.odooctl` marker file.
 
 ```json
 {
@@ -390,6 +420,7 @@ All environment state stored in `~/.odooctl/{project}/{branch}/.odooctl-state.js
     "odoo": 9800,
     "mailhog": 9825
   },
+  "python_deps_hash": "...",
   "initialized_at": "2024-01-15T10:30:00Z",
   "built_at": "2024-01-15T10:25:00Z"
 }
@@ -397,14 +428,21 @@ All environment state stored in `~/.odooctl/{project}/{branch}/.odooctl-state.js
 
 ### Docker Container Design
 
-**Why use a Python virtual environment in Dockerfile?**
+**Why use Python virtual environments?**
 
-The generated Dockerfile installs extra pip packages into `/opt/odoo-venv` instead of the system Python environment:
+The generated Dockerfile installs baseline developer Python tools into `/opt/odoo-venv` instead of the system Python environment:
 
 - Avoids conflicts with apt-managed Odoo dependencies
 - Avoids PEP 668 `--break-system-packages` failures on newer base images
-- Keeps user-requested pip packages isolated and first on Odoo's Python path
+- Keeps Python tooling isolated and first on Odoo's Python path
 - Still exposes apt-installed Odoo packages through `--system-site-packages`
+
+Module-specific Python packages are installed into a persistent runtime volume at
+`/opt/odoo-extra-python`, which is added to `PYTHONPATH`. This avoids rebuilding
+the Docker image when a module adds or changes `external_dependencies['python']`.
+The image keeps baseline developer tools in `/opt/odoo-venv`; module dependencies
+are synchronized with `odooctl docker deps sync` or automatically by
+`odooctl docker install`.
 
 **Included Tools:**
 - Python 3 + pip

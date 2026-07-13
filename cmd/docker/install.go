@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
+	pydeps "github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
 	"github.com/mart337i/odooctl/internal/module"
 	"github.com/spf13/cobra"
@@ -20,11 +21,15 @@ var (
 	flagInstallIgnore        string
 	flagInstallUpdateAll     bool
 	flagInstallIgnoreCore    bool
+	flagInstallAutoDeps      bool
+	flagInstallDepsMode      string
+	flagInstallSkipDeps      bool
 )
 
 var installCmd = &cobra.Command{
-	Use:   "install [modules...]",
-	Short: "Install or update Odoo modules",
+	Use:          "install [modules...]",
+	Short:        "Install or update Odoo modules",
+	SilenceUsage: true,
 	Long: `Install or update Odoo modules with hash-based change detection.
 
 For LOCAL modules (in your project directory):
@@ -54,11 +59,17 @@ func init() {
 	installCmd.Flags().StringVar(&flagInstallIgnore, "ignore", "", "Modules to ignore (comma-separated)")
 	installCmd.Flags().BoolVar(&flagInstallUpdateAll, "update-all", false, "Force complete upgrade (-u base)")
 	installCmd.Flags().BoolVar(&flagInstallIgnoreCore, "ignore-core", false, "Ignore Odoo core addons in change detection")
+	installCmd.Flags().BoolVar(&flagInstallAutoDeps, "auto-install-deps", true, "Install missing external Python dependencies before module install/update")
+	installCmd.Flags().StringVar(&flagInstallDepsMode, "deps-mode", "", "Missing dependency behavior: runtime or fail (default: runtime, fail when CI=true)")
+	installCmd.Flags().BoolVar(&flagInstallSkipDeps, "skip-deps", false, "Skip external Python dependency scanning")
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
+		return err
+	}
+	if err := ensureDockerProjectAccess(state); err != nil {
 		return err
 	}
 
@@ -251,6 +262,11 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Updating: %s\n", yellow(strings.Join(allUpdate, ", ")))
 	}
 
+	pendingPipPackages, err := ensureInstallPythonDeps(state, append(append([]string{}, localInstall...), localUpdate...))
+	if err != nil {
+		return err
+	}
+
 	// Stop the odoo container before running install/update
 	fmt.Println("\nStopping Odoo container...")
 	if err := docker.Compose(state, "stop", "odoo"); err != nil {
@@ -275,6 +291,18 @@ func runInstall(cmd *cobra.Command, args []string) error {
 		return installErr
 	}
 
+	if len(pendingPipPackages) > 0 {
+		merged, _ := pydeps.MergePackages(state.PipPackages, pendingPipPackages)
+		state.PipPackages = merged
+		markPythonDepsSynced(state)
+		if err := state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+		if err := config.SaveProjectLink(state); err != nil {
+			return fmt.Errorf("failed to save project link: %w", err)
+		}
+	}
+
 	// Save new hashes for local modules
 	if len(currentHashes) > 0 {
 		storedHashes, _ := loadHashes(state)
@@ -291,6 +319,39 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%s Installation complete\n", green("✓"))
 	return nil
+}
+
+func ensureInstallPythonDeps(state *config.State, targetModules []string) ([]string, error) {
+	if flagInstallSkipDeps || !flagInstallAutoDeps || len(targetModules) == 0 {
+		return nil, nil
+	}
+	discovered := discoverStatePythonDeps(state, targetModules)
+	missing := pydeps.MissingPythonDeps(discovered, state.PipPackages)
+	if len(missing) == 0 {
+		return nil, nil
+	}
+
+	mode := flagInstallDepsMode
+	if mode == "" {
+		if ciMode() {
+			mode = "fail"
+		} else {
+			mode = "runtime"
+		}
+	}
+
+	printDiscoveredPythonDeps(discovered, state.PipPackages)
+	switch mode {
+	case "runtime":
+		if err := syncPythonDeps(state, missing); err != nil {
+			return nil, err
+		}
+		return missing, nil
+	case "fail":
+		return nil, fmt.Errorf("missing Python dependencies required by module manifests: %s; run 'odooctl docker deps sync' or use --deps-mode runtime", strings.Join(missing, ", "))
+	default:
+		return nil, fmt.Errorf("unsupported --deps-mode %q (supported: runtime, fail)", mode)
+	}
 }
 
 func runOdooUpdate(state *config.State, install, update []string) error {

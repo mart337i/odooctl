@@ -22,11 +22,13 @@ x-odoo-common: &odoo-common
     PORT: 5432
     USER: odoo
     PASSWORD: odoo
+    PYTHONPATH: /opt/odoo-extra-python
   volumes:
     - {{.ProjectRoot}}:/mnt/extra-addons
     - ./odoo.conf:/etc/odoo/odoo.conf:ro
     - odoo-filestore-{{.VersionSuffix}}:/var/lib/odoo/filestore
     - odoo-sessions-{{.VersionSuffix}}:/var/lib/odoo/.local/share/Odoo/sessions
+    - odoo-pydeps-{{.VersionSuffix}}:/opt/odoo-extra-python
 {{- range $i, $path := .AddonsPaths}}
     - {{$path}}:/mnt/custom-addons-{{$i}}:ro
 {{- end}}
@@ -100,6 +102,7 @@ volumes:
   odoo-postgres-data-{{.VersionSuffix}}:
   odoo-filestore-{{.VersionSuffix}}:
   odoo-sessions-{{.VersionSuffix}}:
+  odoo-pydeps-{{.VersionSuffix}}:
 {{- if and .Enterprise .EnterpriseSSHKeyPath}}
 
 secrets:

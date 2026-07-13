@@ -27,7 +27,6 @@ type Data struct {
 	Enterprise            bool
 	EnterpriseGitHubToken string
 	EnterpriseSSHKeyPath  string
-	PipPackages           string
 	AddonsPaths           []string
 	Ports                 config.Ports
 }
@@ -40,11 +39,6 @@ func NewData(state *config.State) Data {
 	modules := []string{"base", "web"}
 	modules = append(modules, state.Modules...)
 
-	pipPkgs := ""
-	if len(state.PipPackages) > 0 {
-		pipPkgs = strings.Join(state.PipPackages, " \\\n    ")
-	}
-
 	return Data{
 		ProjectName:           state.ProjectName,
 		OdooVersion:           state.OdooVersion,
@@ -56,7 +50,6 @@ func NewData(state *config.State) Data {
 		Enterprise:            state.Enterprise,
 		EnterpriseGitHubToken: state.EnterpriseGitHubToken,
 		EnterpriseSSHKeyPath:  state.EnterpriseSSHKeyPath,
-		PipPackages:           pipPkgs,
 		AddonsPaths:           state.AddonsPaths,
 		Ports:                 state.Ports,
 	}

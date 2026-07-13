@@ -10,4 +10,11 @@ var Cmd = &cobra.Command{
 
 func init() {
 	Cmd.AddCommand(scaffoldCmd)
+	Cmd.AddCommand(listCmd)
+	Cmd.AddCommand(depsCmd)
+	Cmd.AddCommand(manifestCmd)
+	Cmd.AddCommand(changedCmd)
+	Cmd.AddCommand(testCmd)
+	Cmd.AddCommand(upgradeCmd)
+	Cmd.AddCommand(migrateCmd)
 }

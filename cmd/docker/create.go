@@ -43,7 +43,7 @@ func init() {
 	createCmd.Flags().BoolVar(&flagWithoutDemo, "without-demo", false, "Initialize without demo data")
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated or path to requirements.txt)")
 	createCmd.Flags().StringArrayVarP(&flagAddonsPaths, "addons-path", "a", nil, "Additional addons directories (can specify multiple times)")
-	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", true, "Auto-discover Python dependencies from manifests")
+	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests during create")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -163,6 +163,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Save state
 	if err := state.Save(); err != nil {
 		return fmt.Errorf("failed to save state: %w", err)
+	}
+	if err := config.SaveProjectLink(state); err != nil {
+		return fmt.Errorf("failed to save project link: %w", err)
 	}
 
 	// Print summary

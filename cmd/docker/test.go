@@ -16,8 +16,9 @@ var (
 )
 
 var testCmd = &cobra.Command{
-	Use:   "test",
-	Short: "Run Odoo tests",
+	Use:          "test",
+	Short:        "Run Odoo tests",
+	SilenceUsage: true,
 	Long: `Run Odoo tests with advanced filtering.
 
 Examples:
@@ -59,6 +60,9 @@ func init() {
 func runTest(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
+		return err
+	}
+	if err := ensureDockerProjectAccess(state); err != nil {
 		return err
 	}
 

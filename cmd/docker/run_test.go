@@ -58,3 +58,9 @@ func TestRefreshStaleDockerfileRegeneratesSystemPipInstall(t *testing.T) {
 		t.Fatal("Dockerfile missing venv pip install after refresh")
 	}
 }
+
+func TestRunSilencesUsageOnRuntimeErrors(t *testing.T) {
+	if !runCmd.SilenceUsage {
+		t.Fatal("docker run should not print usage for runtime errors")
+	}
+}

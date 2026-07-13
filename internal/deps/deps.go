@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/fatih/color"
@@ -62,42 +63,132 @@ func parseCommaSeparated(input string) []string {
 	return packages
 }
 
-// DiscoverPythonDeps scans manifests for external_dependencies.python
-func DiscoverPythonDeps(dirs []string, existingPkgs []string) []string {
-	existingSet := make(map[string]bool)
-	for _, pkg := range existingPkgs {
-		// Normalize package name (remove version specs)
-		name := strings.Split(pkg, "==")[0]
-		name = strings.Split(name, ">=")[0]
-		name = strings.Split(name, "<=")[0]
-		name = strings.Split(name, "[")[0]
-		existingSet[strings.ToLower(name)] = true
+// NormalizePackageName returns the comparable package name from a pip spec.
+func NormalizePackageName(pkg string) string {
+	pkg = strings.TrimSpace(pkg)
+	if idx := strings.Index(pkg, ";"); idx >= 0 {
+		pkg = strings.TrimSpace(pkg[:idx])
+	}
+	if idx := strings.Index(pkg, "["); idx >= 0 {
+		pkg = strings.TrimSpace(pkg[:idx])
+	}
+	for _, op := range []string{"===", "==", ">=", "<=", "~=", "!=", ">", "<"} {
+		if idx := strings.Index(pkg, op); idx >= 0 {
+			pkg = strings.TrimSpace(pkg[:idx])
+		}
+	}
+	return strings.ToLower(strings.ReplaceAll(pkg, "_", "-"))
+}
+
+// MergePackages appends packages not already present by normalized package name.
+func MergePackages(existing, additions []string) ([]string, []string) {
+	seen := make(map[string]bool)
+	for _, pkg := range existing {
+		if name := NormalizePackageName(pkg); name != "" {
+			seen[name] = true
+		}
 	}
 
-	discovered := make(map[string][]string) // package -> modules requiring it
+	merged := append([]string{}, existing...)
+	var added []string
+	for _, pkg := range additions {
+		pkg = strings.TrimSpace(pkg)
+		name := NormalizePackageName(pkg)
+		if pkg == "" || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		merged = append(merged, pkg)
+		added = append(added, pkg)
+	}
+	return merged, added
+}
 
+// DiscoverPythonDepsForModules scans manifests and returns package -> modules requiring it.
+// If targetModules is empty, all modules in dirs are scanned.
+func DiscoverPythonDepsForModules(dirs []string, targetModules []string) map[string][]string {
+	targets := make(map[string]bool)
+	for _, mod := range targetModules {
+		mod = strings.TrimSpace(mod)
+		if mod != "" {
+			targets[mod] = true
+		}
+	}
+
+	discovered := make(map[string][]string)
+	moduleSeenByPackage := make(map[string]map[string]bool)
 	for _, dir := range dirs {
 		modules, _ := module.FindModules(dir)
 		for _, mod := range modules {
+			if len(targets) > 0 && !targets[mod] {
+				continue
+			}
 			manifestPath := filepath.Join(dir, mod, "__manifest__.py")
-			deps := ParseManifestPythonDeps(manifestPath)
-			for _, dep := range deps {
-				depLower := strings.ToLower(dep)
-				if !existingSet[depLower] {
-					discovered[dep] = append(discovered[dep], mod)
+			for _, dep := range ParseManifestPythonDeps(manifestPath) {
+				dep = strings.TrimSpace(dep)
+				if dep == "" {
+					continue
 				}
+				if moduleSeenByPackage[dep] == nil {
+					moduleSeenByPackage[dep] = make(map[string]bool)
+				}
+				if moduleSeenByPackage[dep][mod] {
+					continue
+				}
+				moduleSeenByPackage[dep][mod] = true
+				discovered[dep] = append(discovered[dep], mod)
 			}
 		}
 	}
 
-	if len(discovered) == 0 {
+	for pkg := range discovered {
+		sort.Strings(discovered[pkg])
+	}
+	return discovered
+}
+
+func MissingPythonDeps(discovered map[string][]string, existingPkgs []string) []string {
+	seen := make(map[string]bool)
+	for _, pkg := range existingPkgs {
+		if name := NormalizePackageName(pkg); name != "" {
+			seen[name] = true
+		}
+	}
+
+	var missing []string
+	for pkg := range discovered {
+		name := NormalizePackageName(pkg)
+		if name != "" && !seen[name] {
+			missing = append(missing, pkg)
+		}
+	}
+	sort.Strings(missing)
+	return missing
+}
+
+func SortedDiscoveredPackages(discovered map[string][]string) []string {
+	packages := make([]string, 0, len(discovered))
+	for pkg := range discovered {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+	return packages
+}
+
+// DiscoverPythonDeps scans manifests for external_dependencies.python
+func DiscoverPythonDeps(dirs []string, existingPkgs []string) []string {
+	discovered := DiscoverPythonDepsForModules(dirs, nil)
+	missing := MissingPythonDeps(discovered, existingPkgs)
+
+	if len(missing) == 0 {
 		return nil
 	}
 
 	fmt.Printf("\n%s Python dependencies detected in manifests:\n", color.CyanString("🔍"))
 
 	var selected []string
-	for pkg, mods := range discovered {
+	for _, pkg := range missing {
+		mods := discovered[pkg]
 		fmt.Printf("\n%s %s\n", color.YellowString("📦"), pkg)
 		fmt.Printf("   Required by: %s\n", color.HiBlackString(strings.Join(mods, ", ")))
 

@@ -12,9 +12,10 @@ import (
 var version = "0.2.5"
 
 var rootCmd = &cobra.Command{
-	Use:   "odooctl",
-	Short: "CLI tool for Odoo Docker development environments",
-	Long:  `odooctl helps you create and manage Docker-based Odoo development environments.`,
+	Use:           "odooctl",
+	Short:         "CLI tool for Odoo Docker development environments",
+	Long:          `odooctl helps you create and manage Docker-based Odoo development environments.`,
+	SilenceErrors: true,
 }
 
 func Execute() {

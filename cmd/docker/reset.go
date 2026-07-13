@@ -18,8 +18,9 @@ var (
 )
 
 var resetCmd = &cobra.Command{
-	Use:   "reset",
-	Short: "Remove containers, optionally volumes and files",
+	Use:          "reset",
+	Short:        "Remove containers, optionally volumes and files",
+	SilenceUsage: true,
 	Long: `Stop and remove containers for this project.
 
 By default, only stops containers. Use flags to also remove data:
@@ -75,11 +76,21 @@ func runReset(cmd *cobra.Command, args []string) error {
 	if flagResetVolumes {
 		downArgs = append(downArgs, "-v")
 	}
-	if err := docker.Compose(state, downArgs...); err != nil {
-		fmt.Printf("%s Warning: failed to stop containers: %v\n", yellow("!"), err)
+	dockerErr := docker.Compose(state, downArgs...)
+	if dockerErr != nil {
+		fmt.Printf("%s Warning: failed to stop containers", yellow("!"))
+		if flagResetVolumes {
+			fmt.Print("/remove volumes")
+		}
+		fmt.Printf(": %v\n", dockerErr)
+	}
+
+	if shouldKeepConfigAfterDockerCleanupError(dockerErr, flagResetVolumes, flagResetFiles) {
+		return fmt.Errorf("docker cleanup failed; leaving config files in place so volumes can be removed later: %w", dockerErr)
 	}
 
 	// Remove environment directory if requested
+	filesRemoved := false
 	if flagResetFiles {
 		dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
 		if err != nil {
@@ -90,17 +101,41 @@ func runReset(cmd *cobra.Command, args []string) error {
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("failed to remove directory: %w", err)
 		}
+		if err := config.RemoveProjectLink(state.ProjectRoot); err != nil {
+			return fmt.Errorf("failed to remove project link: %w", err)
+		}
+		filesRemoved = true
 	}
 
 	fmt.Println()
+	if dockerErr != nil {
+		msg := fmt.Sprintf("%s Docker cleanup failed", yellow("!"))
+		if filesRemoved {
+			msg += ", files removed"
+		}
+		fmt.Println(msg)
+		if shouldReturnDockerCleanupError(dockerErr, filesRemoved) {
+			return fmt.Errorf("docker cleanup failed: %w", dockerErr)
+		}
+		return nil
+	}
+
 	msg := fmt.Sprintf("%s Containers stopped", green("✓"))
 	if flagResetVolumes {
 		msg += ", volumes removed"
 	}
-	if flagResetFiles {
+	if filesRemoved {
 		msg += ", files removed"
 	}
 	fmt.Println(msg)
 
 	return nil
+}
+
+func shouldKeepConfigAfterDockerCleanupError(dockerErr error, removeVolumes, removeFiles bool) bool {
+	return dockerErr != nil && removeVolumes && removeFiles
+}
+
+func shouldReturnDockerCleanupError(dockerErr error, filesRemoved bool) bool {
+	return dockerErr != nil && !filesRemoved
 }
