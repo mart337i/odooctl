@@ -10,6 +10,7 @@ A CLI tool for managing Odoo Docker development environments. Written in Go for 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Typical Development Workflow](#typical-development-workflow)
+- [Using AI With odooctl](#using-ai-with-odooctl)
 - [Commands Reference](#commands-reference)
 - [Advanced Features](#advanced-features)
 - [How It Works](#how-it-works)
@@ -95,7 +96,8 @@ odooctl docker create --odoo-version 18.0 --enterprise
 - Extracts Odoo version from git branch (e.g., `17.0-feature` → `17.0`)
 - Calculates ports based on version (Odoo 17 → port 9700)
 - Generates Docker configs in `~/.odooctl/{project}/{branch}/`
-- Auto-discovers Python dependencies from your `__manifest__.py` files
+- Stores project lookup links in `~/.odooctl/projects/` without repo-local marker files
+- Does not scan Python dependencies unless `--auto-discover-deps` is explicitly passed
 
 ### 2. First Run
 
@@ -110,11 +112,12 @@ odooctl docker run -i       # Initialize database
 ```
 
 **What happens:**
-- Builds Docker image with Odoo + your specified pip packages
+- Builds Docker image with Odoo and baseline developer tooling
 - Starts PostgreSQL and Odoo containers
 - Initializes database with base modules
 - Configures report.url for proper PDF generation
 - Tracks initialization state in `.odooctl-state.json`
+- Keeps module Python dependencies in the runtime volume at `/opt/odoo-extra-python`
 
 ### 3. Daily Development
 
@@ -124,6 +127,10 @@ odooctl docker status
 
 # View logs
 odooctl docker logs -f
+
+# Open Odoo or MailHog
+odooctl docker open odoo
+odooctl docker open mailhog
 
 # Develop your module...
 # Edit code in your local directory
@@ -148,24 +155,27 @@ odooctl docker test --modules my_module --test-tags post_install
 odooctl docker test --test-tags /my_module:TestMyClass
 
 # Open Odoo shell for debugging
-odooctl docker shell --odoo
+odooctl odoo shell
 >>> self.env['res.partner'].search([])
 
 # Open PostgreSQL shell
 odooctl docker db
+
+# Run quick SQL
+odooctl docker sql "select id, login from res_users"
 ```
 
 ### 5. Adding Dependencies
 
 ```bash
-# Add Python packages to existing environment
-odooctl docker reconfigure --add-pip requests,pandas
+# Scan manifests for external Python dependencies
+odooctl docker deps scan
 
-# Or from requirements.txt
-odooctl docker reconfigure --add-pip ./requirements.txt
+# Install packages into the runtime dependency volume
+odooctl docker deps sync requests pandas
 
-# Auto-discover dependencies from manifests
-odooctl docker reconfigure --auto-discover-deps
+# Or sync missing dependencies discovered from manifests
+odooctl docker deps sync
 
 # Add custom addons path
 odooctl docker reconfigure --add-addons-path ~/external-addons
@@ -211,22 +221,199 @@ odooctl docker reset -v
 odooctl docker reset -v -c -f
 ```
 
+## Interacting With Containers During Development
+
+odooctl wraps the generated Docker Compose environment so you do not need to find
+the compose directory, remember service names, or type database/config paths.
+
+Run arbitrary commands inside a service:
+
+```bash
+odooctl docker exec odoo -- python --version
+odooctl docker exec odoo -- ls /mnt/extra-addons
+odooctl docker exec --root odoo -- apt update
+odooctl docker exec -T db -- psql -U odoo -d odoo-190 -c "select now();"
+```
+
+Use raw Compose when needed:
+
+```bash
+odooctl docker compose ps
+odooctl docker compose -- top
+odooctl docker compose -- ps --services
+```
+
+Restart only the Odoo service after code changes:
+
+```bash
+odooctl docker restart
+odooctl docker restart odoo
+odooctl docker restart db odoo
+```
+
+Open shells:
+
+```bash
+odooctl docker shell
+odooctl docker shell db
+odooctl docker shell --root
+odooctl docker shell --odoo
+```
+
+Query the database without entering psql:
+
+```bash
+odooctl docker sql "select id, login from res_users"
+odooctl docker sql --json "select name, state from ir_module_module where name = 'sale'"
+odooctl docker sql --file debug.sql
+```
+
+Filter logs for Odoo errors:
+
+```bash
+odooctl docker logs --errors
+odooctl docker logs --grep Traceback --since 10m
+odooctl docker logs db --since 30m
+```
+
+Print URLs and debugger attach details:
+
+```bash
+odooctl docker open
+odooctl docker debug-info
+```
+
+Use Odoo-specific helpers for ORM/runtime tasks:
+
+```bash
+odooctl odoo shell
+odooctl odoo eval "env['res.users'].search([]).mapped('login')"
+odooctl odoo update-apps
+odooctl odoo module-state my_module --json
+```
+
+## Using AI With odooctl
+
+odooctl can generate local, redacted context for ChatGPT, Claude, OpenCode,
+Cursor, and other AI tools. It does not call an LLM API itself.
+
+Start with diagnostics:
+
+```bash
+odooctl doctor
+odooctl doctor --json
+```
+
+Generate compact context for a developer chat:
+
+```bash
+odooctl ai context
+odooctl ai context --module my_module
+```
+
+Generate machine-readable context for an agent:
+
+```bash
+odooctl ai context --module my_module --format json
+```
+
+When debugging failures, create a redacted report:
+
+```bash
+odooctl ai debug-report --module my_module --include-logs
+```
+
+Generate a ready-to-paste prompt:
+
+```bash
+odooctl ai prompt debug --module my_module
+```
+
+Recommended safe first commands for agents:
+
+```bash
+odooctl doctor --json
+odooctl ai context --format json
+odooctl module list --json
+odooctl docker status --json
+odooctl docker install --list-only --json
+odooctl docker debug-info --json
+```
+
+Agents should not run destructive commands such as `odooctl docker reset -v`,
+`odooctl docker reset -vc`, or `odooctl docker deps clean` unless the developer
+explicitly approves the data loss.
+
 ## Commands Reference
+
+### Diagnostics and AI Commands
+
+| Command | Description |
+|---------|-------------|
+| `odooctl doctor` | Diagnose project state, Docker access, services, files, and dependencies |
+| `odooctl doctor --json` | Print structured diagnostics for AI agents and automation |
+| `odooctl ai context` | Print compact AI-ready project context |
+| `odooctl ai context --module my_module` | Print context focused on one module |
+| `odooctl ai context --format json` | Print machine-readable AI context |
+| `odooctl ai debug-report --include-logs` | Print a redacted debugging report with recent logs |
+| `odooctl ai prompt debug --module my_module` | Generate a ready-to-paste debugging prompt |
+
+### JSON Output
+
+Useful inspection commands support `--json` for agents and scripts:
+
+```bash
+odooctl version --json
+odooctl config show --json
+odooctl config get ssh-key-path --json
+odooctl config set ssh-key-path ~/.ssh/id_ed25519 --json
+odooctl config unset github-token --json
+odooctl doctor --json
+odooctl docker create --json
+odooctl docker status --json
+odooctl docker path --json
+odooctl docker stop --json
+odooctl docker reset --json
+odooctl docker logs --json
+odooctl docker dump --json
+odooctl docker restart --json
+odooctl docker open --json
+odooctl docker debug-info --json
+odooctl docker sql --json "select name, state from ir_module_module"
+odooctl docker deps scan --json
+odooctl docker deps list --json
+odooctl docker goto --json
+odooctl docker install --list-only --json
+odooctl module list --json
+odooctl module deps my_module --json
+odooctl module manifest my_module --json
+odooctl module changed --json
+odooctl module scaffold my_module --json
+odooctl module migrate plan my_module --json
+odooctl module migrate scaffold my_module --to 19.0.1.0.0 --json
+odooctl odoo module-state my_module --json
+```
 
 ### Docker Commands
 
 | Command | Description |
 |---------|-------------|
 | `odooctl docker create` | Generate Docker environment files |
+| `odooctl docker compose` | Run docker compose in the generated environment directory |
 | `odooctl docker run` | Initialize database and start containers |
+| `odooctl docker exec` | Run a command inside a service |
+| `odooctl docker restart` | Restart one or more services, defaulting to Odoo |
 | `odooctl docker status` | Show container status and access URLs |
 | `odooctl docker logs` | View container logs (`-f` to follow) |
 | `odooctl docker install` | Install/update modules with hash-based change detection |
 | `odooctl docker test` | Run Odoo tests with advanced filtering |
 | `odooctl docker shell` | Open bash or Odoo shell in container |
 | `odooctl docker db` | Open PostgreSQL shell |
+| `odooctl docker sql` | Run quick SQL against the Odoo database |
 | `odooctl docker deps` | Scan, sync, list, or clean Python dependencies |
 | `odooctl docker odoo-bin` | Run odoo-bin commands directly |
+| `odooctl docker open` | Open or print Odoo/MailHog URLs |
+| `odooctl docker debug-info` | Show URLs, DB, config paths, and debugger attach config |
 | `odooctl docker stop` | Stop running containers |
 | `odooctl docker reset` | Remove containers, optionally volumes and files |
 | `odooctl docker reconfigure` | Add pip packages or addons paths |
@@ -246,6 +433,15 @@ odooctl docker reset -v -c -f
 | `odooctl module test` | Run tests for modules using Odoo test tags |
 | `odooctl module upgrade` | Install/update modules through Docker |
 | `odooctl module migrate` | Plan or scaffold module migration files |
+
+### Odoo Runtime Commands
+
+| Command | Description |
+|---------|-------------|
+| `odooctl odoo shell` | Open Odoo's Python shell for the current database |
+| `odooctl odoo eval` | Evaluate a Python expression in Odoo shell context |
+| `odooctl odoo update-apps` | Refresh Odoo's apps/module list |
+| `odooctl odoo module-state` | Inspect module states from `ir.module.module` |
 
 ## Advanced Features
 

@@ -13,12 +13,33 @@ import (
 	"github.com/mart337i/odooctl/internal/config"
 	pydeps "github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
 
 const pyDepsDir = "/opt/odoo-extra-python"
 
 var flagDepsModules string
+var flagDepsJSON bool
+
+type depsPackageReport struct {
+	Name    string   `json:"name"`
+	Modules []string `json:"modules"`
+	Status  string   `json:"status"`
+	Missing bool     `json:"missing"`
+}
+
+type depsScanReport struct {
+	Packages   []depsPackageReport `json:"packages"`
+	Missing    []string            `json:"missing"`
+	Configured []string            `json:"configured"`
+}
+
+type depsListReport struct {
+	Packages []string   `json:"packages"`
+	Synced   bool       `json:"synced"`
+	SyncedAt *time.Time `json:"synced_at,omitempty"`
+}
 
 var depsCmd = &cobra.Command{
 	Use:   "deps",
@@ -59,10 +80,12 @@ var depsCleanCmd = &cobra.Command{
 
 func init() {
 	depsScanCmd.Flags().StringVarP(&flagDepsModules, "modules", "m", "", "Modules to scan (comma-separated)")
+	depsScanCmd.Flags().BoolVar(&flagDepsJSON, "json", false, "Print JSON output")
 	depsSyncCmd.Flags().StringVarP(&flagDepsModules, "modules", "m", "", "Modules to scan when packages are omitted (comma-separated)")
 	depsCmd.AddCommand(depsScanCmd)
 	depsCmd.AddCommand(depsSyncCmd)
 	depsCmd.AddCommand(depsListCmd)
+	depsListCmd.Flags().BoolVar(&flagDepsJSON, "json", false, "Print JSON output")
 	depsCmd.AddCommand(depsCleanCmd)
 }
 
@@ -72,6 +95,9 @@ func runDepsScan(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	discovered := discoverStatePythonDeps(state, mergeStringLists(args, splitCSV(flagDepsModules)))
+	if flagDepsJSON {
+		return output.PrintJSON(buildDepsScanReport(discovered, state.PipPackages))
+	}
 	if len(discovered) == 0 {
 		fmt.Println("No Python dependencies found in module manifests")
 		return nil
@@ -120,6 +146,9 @@ func runDepsList(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
 		return err
+	}
+	if flagDepsJSON {
+		return output.PrintJSON(depsListReport{Packages: state.PipPackages, Synced: pythonDepsSynced(state), SyncedAt: state.PythonDepsSyncedAt})
 	}
 	if len(state.PipPackages) == 0 {
 		fmt.Println("No Python dependencies recorded for this environment")
@@ -235,6 +264,24 @@ func printDiscoveredPythonDeps(discovered map[string][]string, existing []string
 		}
 		fmt.Printf("%s %s (%s) required by %s\n", color.CyanString("📦"), pkg, status, strings.Join(discovered[pkg], ", "))
 	}
+}
+
+func buildDepsScanReport(discovered map[string][]string, existing []string) depsScanReport {
+	missingSet := make(map[string]bool)
+	missing := pydeps.MissingPythonDeps(discovered, existing)
+	for _, pkg := range missing {
+		missingSet[pkg] = true
+	}
+	report := depsScanReport{Missing: missing, Configured: append([]string{}, existing...)}
+	for _, pkg := range pydeps.SortedDiscoveredPackages(discovered) {
+		item := depsPackageReport{Name: pkg, Modules: discovered[pkg], Status: "configured"}
+		if missingSet[pkg] {
+			item.Status = "missing"
+			item.Missing = true
+		}
+		report.Packages = append(report.Packages, item)
+	}
+	return report
 }
 
 func splitCSV(value string) []string {

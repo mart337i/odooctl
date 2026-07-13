@@ -12,6 +12,7 @@ import (
 	pydeps "github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
 	"github.com/mart337i/odooctl/internal/module"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,18 @@ var (
 	flagInstallAutoDeps      bool
 	flagInstallDepsMode      string
 	flagInstallSkipDeps      bool
+	flagInstallJSON          bool
 )
+
+type installListReport struct {
+	NewLocal       []string `json:"new_local"`
+	ChangedLocal   []string `json:"changed_local"`
+	External       []string `json:"external"`
+	NothingToDo    bool     `json:"nothing_to_do"`
+	ComputeHashes  bool     `json:"compute_hashes"`
+	UpdateAll      bool     `json:"update_all"`
+	IgnoredModules []string `json:"ignored_modules,omitempty"`
+}
 
 var installCmd = &cobra.Command{
 	Use:          "install [modules...]",
@@ -62,14 +74,12 @@ func init() {
 	installCmd.Flags().BoolVar(&flagInstallAutoDeps, "auto-install-deps", true, "Install missing external Python dependencies before module install/update")
 	installCmd.Flags().StringVar(&flagInstallDepsMode, "deps-mode", "", "Missing dependency behavior: runtime or fail (default: runtime, fail when CI=true)")
 	installCmd.Flags().BoolVar(&flagInstallSkipDeps, "skip-deps", false, "Skip external Python dependency scanning")
+	installCmd.Flags().BoolVar(&flagInstallJSON, "json", false, "Print JSON output with --list-only")
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
-		return err
-	}
-	if err := ensureDockerProjectAccess(state); err != nil {
 		return err
 	}
 
@@ -79,6 +89,12 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Handle --update-all flag (force -u base)
 	if flagInstallUpdateAll {
+		if flagInstallJSON {
+			return output.PrintJSON(installListReport{UpdateAll: true})
+		}
+		if err := ensureDockerProjectAccess(state); err != nil {
+			return err
+		}
 		fmt.Println("Running full upgrade (-u base)...")
 
 		// Stop the odoo container before running upgrade
@@ -212,6 +228,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 		// List only mode
 		if flagInstallListOnly {
+			if flagInstallJSON {
+				return output.PrintJSON(buildInstallListReport(localInstall, localUpdate, externalTargets))
+			}
 			if len(localInstall) > 0 {
 				fmt.Printf("\nNew local modules to install (%d):\n", len(localInstall))
 				for _, m := range localInstall {
@@ -236,6 +255,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Nothing to do?
 	if len(localInstall) == 0 && len(localUpdate) == 0 && len(externalTargets) == 0 {
+		if flagInstallJSON {
+			return output.PrintJSON(buildInstallListReport(localInstall, localUpdate, externalTargets))
+		}
 		if len(localTargets) > 0 {
 			fmt.Printf("%s All local modules are up to date\n", green("✓"))
 		} else if len(args) == 0 {
@@ -248,6 +270,9 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	// Combine install and update lists
 	var allInstall, allUpdate []string
+	if err := ensureDockerProjectAccess(state); err != nil {
+		return err
+	}
 
 	// External modules are always treated as install (Odoo handles if already installed)
 	allInstall = append(allInstall, externalTargets...)
@@ -319,6 +344,16 @@ func runInstall(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n%s Installation complete\n", green("✓"))
 	return nil
+}
+
+func buildInstallListReport(localInstall, localUpdate, externalTargets []string) installListReport {
+	report := installListReport{
+		NewLocal:     append([]string{}, localInstall...),
+		ChangedLocal: append([]string{}, localUpdate...),
+		External:     append([]string{}, externalTargets...),
+	}
+	report.NothingToDo = len(report.NewLocal) == 0 && len(report.ChangedLocal) == 0 && len(report.External) == 0
+	return report
 }
 
 func ensureInstallPythonDeps(state *config.State, targetModules []string) ([]string, error) {

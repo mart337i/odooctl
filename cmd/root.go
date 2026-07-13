@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mart337i/odooctl/cmd/ai"
 	"github.com/mart337i/odooctl/cmd/docker"
 	"github.com/mart337i/odooctl/cmd/module"
+	odoocmd "github.com/mart337i/odooctl/cmd/odoo"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -26,8 +29,11 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.AddCommand(ai.Cmd)
 	rootCmd.AddCommand(docker.Cmd)
 	rootCmd.AddCommand(module.Cmd)
+	rootCmd.AddCommand(odoocmd.Cmd)
+	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -35,6 +41,15 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version number",
 	Run: func(cmd *cobra.Command, args []string) {
+		jsonOutput, _ := cmd.Flags().GetBool("json")
+		if jsonOutput {
+			_ = output.PrintJSON(map[string]string{"version": version})
+			return
+		}
 		fmt.Printf("odooctl %s\n", version)
 	},
+}
+
+func init() {
+	versionCmd.Flags().Bool("json", false, "Print JSON output")
 }

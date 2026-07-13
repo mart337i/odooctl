@@ -7,14 +7,34 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
+
+var flagPathJSON bool
+
+type pathReport struct {
+	Location     string       `json:"location"`
+	Project      string       `json:"project"`
+	Environment  string       `json:"environment"`
+	OdooVersion  string       `json:"odoo_version"`
+	Ports        config.Ports `json:"ports"`
+	Enterprise   bool         `json:"enterprise"`
+	FilesReady   bool         `json:"files_ready"`
+	FilesPresent []string     `json:"files_present"`
+	FilesMissing []string     `json:"files_missing"`
+	AddonsPaths  []string     `json:"addons_paths"`
+}
 
 var pathCmd = &cobra.Command{
 	Use:   "path",
 	Short: "Show docker environment location and status",
 	Long:  `Display the location and status of the Docker environment files.`,
 	RunE:  runPath,
+}
+
+func init() {
+	pathCmd.Flags().BoolVar(&flagPathJSON, "json", false, "Print JSON output")
 }
 
 func runPath(cmd *cobra.Command, args []string) error {
@@ -31,6 +51,10 @@ func runPath(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	report := dockerPathReport(state, dir)
+	if flagPathJSON {
+		return output.PrintJSON(report)
+	}
 
 	fmt.Printf("%s Location: %s\n", cyan("📁"), dir)
 	fmt.Printf("%s Version:  Odoo %s\n", cyan("🔢"), state.OdooVersion)
@@ -41,17 +65,7 @@ func runPath(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s Edition:  Enterprise\n", cyan("🏢"))
 	}
 
-	// Check if docker files exist
-	files := []string{"docker-compose.yml", "Dockerfile", "odoo.conf"}
-	allExist := true
-	for _, file := range files {
-		if _, err := os.Stat(filepath.Join(dir, file)); os.IsNotExist(err) {
-			allExist = false
-			break
-		}
-	}
-
-	if allExist {
+	if report.FilesReady {
 		entries, _ := os.ReadDir(dir)
 		fmt.Printf("\n%s %d files ready\n", green("✓"), len(entries))
 	} else {
@@ -67,4 +81,25 @@ func runPath(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func dockerPathReport(state *config.State, dir string) pathReport {
+	report := pathReport{
+		Location:    dir,
+		Project:     state.ProjectName,
+		Environment: state.Branch,
+		OdooVersion: state.OdooVersion,
+		Ports:       state.Ports,
+		Enterprise:  state.Enterprise,
+		AddonsPaths: append([]string{}, state.AddonsPaths...),
+	}
+	for _, file := range []string{"docker-compose.yml", "Dockerfile", "odoo.conf"} {
+		if _, err := os.Stat(filepath.Join(dir, file)); os.IsNotExist(err) {
+			report.FilesMissing = append(report.FilesMissing, file)
+		} else {
+			report.FilesPresent = append(report.FilesPresent, file)
+		}
+	}
+	report.FilesReady = len(report.FilesMissing) == 0
+	return report
 }

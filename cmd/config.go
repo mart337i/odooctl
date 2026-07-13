@@ -7,8 +7,27 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
+
+var flagConfigJSON bool
+
+type globalConfigReport struct {
+	SSHKeyPath  string `json:"ssh_key_path"`
+	GitHubToken string `json:"github_token"`
+}
+
+type configValueReport struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type configMutationReport struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+	Set   bool   `json:"set"`
+}
 
 var configCmd = &cobra.Command{
 	Use:   "config",
@@ -22,7 +41,7 @@ Available keys:
 Examples:
   odooctl config show                          # Show all saved settings
   odooctl config set ssh-key-path ~/.ssh/id_ed25519
-  odooctl config set github-token ghp_xxxxx
+  odooctl config set github-token <token>
   odooctl config get ssh-key-path
   odooctl config unset github-token`,
 }
@@ -56,6 +75,10 @@ var configShowCmd = &cobra.Command{
 }
 
 func init() {
+	configSetCmd.Flags().BoolVar(&flagConfigJSON, "json", false, "Print JSON output")
+	configGetCmd.Flags().BoolVar(&flagConfigJSON, "json", false, "Print JSON output")
+	configUnsetCmd.Flags().BoolVar(&flagConfigJSON, "json", false, "Print JSON output")
+	configShowCmd.Flags().BoolVar(&flagConfigJSON, "json", false, "Print JSON output")
 	configCmd.AddCommand(configSetCmd)
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configUnsetCmd)
@@ -82,24 +105,34 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("SSH key file not found: %s", expanded)
 		}
 		cfg.SSHKeyPath = expanded
-		fmt.Printf("%s ssh-key-path set to: %s\n", color.GreenString("✓"), expanded)
+		if !flagConfigJSON {
+			fmt.Printf("%s ssh-key-path set to: %s\n", color.GreenString("✓"), expanded)
+		}
 
 	case "github-token":
 		token := strings.TrimSpace(value)
 		if token == "" {
 			return fmt.Errorf("token cannot be empty")
 		}
-		if !strings.HasPrefix(token, "ghp_") && !strings.HasPrefix(token, "github_pat_") {
+		if !strings.HasPrefix(token, "ghp_") && !strings.HasPrefix(token, "github_pat_") && !flagConfigJSON {
 			fmt.Printf("%s Token doesn't match expected format (ghp_ or github_pat_), saving anyway\n", color.YellowString("⚠"))
 		}
 		cfg.GitHubToken = token
-		fmt.Printf("%s github-token saved\n", color.GreenString("✓"))
+		if !flagConfigJSON {
+			fmt.Printf("%s github-token saved\n", color.GreenString("✓"))
+		}
 
 	default:
 		return fmt.Errorf("unknown config key: %s\nValid keys: ssh-key-path, github-token", key)
 	}
 
-	return cfg.Save()
+	if err := cfg.Save(); err != nil {
+		return err
+	}
+	if flagConfigJSON {
+		return output.PrintJSON(configMutationReport{Key: key, Value: configValueForKey(cfg, key), Set: true})
+	}
+	return nil
 }
 
 func runConfigGet(cmd *cobra.Command, args []string) error {
@@ -112,12 +145,18 @@ func runConfigGet(cmd *cobra.Command, args []string) error {
 
 	switch key {
 	case "ssh-key-path":
+		if flagConfigJSON {
+			return output.PrintJSON(configValueReport{Key: key, Value: cfg.SSHKeyPath})
+		}
 		if cfg.SSHKeyPath == "" {
 			fmt.Println("(not set)")
 		} else {
 			fmt.Println(cfg.SSHKeyPath)
 		}
 	case "github-token":
+		if flagConfigJSON {
+			return output.PrintJSON(configValueReport{Key: key, Value: configValueForKey(cfg, key)})
+		}
 		if cfg.GitHubToken == "" {
 			fmt.Println("(not set)")
 		} else {
@@ -150,6 +189,9 @@ func runConfigUnset(cmd *cobra.Command, args []string) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
+	if flagConfigJSON {
+		return output.PrintJSON(configMutationReport{Key: key, Set: false})
+	}
 	fmt.Printf("%s %s unset\n", color.GreenString("✓"), key)
 	return nil
 }
@@ -158,6 +200,9 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadGlobalConfig()
 	if err != nil {
 		return err
+	}
+	if flagConfigJSON {
+		return output.PrintJSON(globalConfigReport{SSHKeyPath: cfg.SSHKeyPath, GitHubToken: configValueForKey(cfg, "github-token")})
 	}
 
 	cyan := color.New(color.FgCyan).SprintFunc()
@@ -181,4 +226,18 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	return nil
+}
+
+func configValueForKey(cfg *config.GlobalConfig, key string) string {
+	switch key {
+	case "ssh-key-path":
+		return cfg.SSHKeyPath
+	case "github-token":
+		if cfg.GitHubToken == "" {
+			return ""
+		}
+		return config.MaskToken(cfg.GitHubToken)
+	default:
+		return ""
+	}
 }

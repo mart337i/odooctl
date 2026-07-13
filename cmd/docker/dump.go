@@ -12,12 +12,21 @@ import (
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/docker"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
 
 var (
 	flagDumpOutput string
+	flagDumpJSON   bool
 )
+
+type dumpReport struct {
+	Project  string  `json:"project"`
+	Database string  `json:"database"`
+	File     string  `json:"file"`
+	SizeMB   float64 `json:"size_mb"`
+}
 
 var dumpCmd = &cobra.Command{
 	Use:   "dump",
@@ -37,6 +46,7 @@ Examples:
 
 func init() {
 	dumpCmd.Flags().StringVarP(&flagDumpOutput, "output", "o", "", "Output file or directory (default: odoo-backup-YYYYMMDD-HHMMSS.zip)")
+	dumpCmd.Flags().BoolVar(&flagDumpJSON, "json", false, "Print JSON output")
 }
 
 func runDump(cmd *cobra.Command, args []string) error {
@@ -70,9 +80,11 @@ func runDump(cmd *cobra.Command, args []string) error {
 	// Get database name
 	dbName := state.DBName()
 
-	fmt.Printf("%s Creating backup for project: %s\n", cyan("📦"), state.ProjectName)
-	fmt.Printf("%s Database: %s\n", cyan("📊"), dbName)
-	fmt.Printf("%s Output: %s\n\n", cyan("💾"), outputFile)
+	if !flagDumpJSON {
+		fmt.Printf("%s Creating backup for project: %s\n", cyan("📦"), state.ProjectName)
+		fmt.Printf("%s Database: %s\n", cyan("📊"), dbName)
+		fmt.Printf("%s Output: %s\n\n", cyan("💾"), outputFile)
+	}
 
 	// Create temporary directory for dump files
 	tmpDir, err := os.MkdirTemp("", "odooctl-dump-*")
@@ -82,23 +94,33 @@ func runDump(cmd *cobra.Command, args []string) error {
 	defer os.RemoveAll(tmpDir)
 
 	// Step 1: Dump database
-	fmt.Printf("%s Dumping database...\n", yellow("→"))
+	if !flagDumpJSON {
+		fmt.Printf("%s Dumping database...\n", yellow("→"))
+	}
 	sqlFile := filepath.Join(tmpDir, "database.sql")
 	if err := dumpDatabase(state, dbName, sqlFile); err != nil {
 		return fmt.Errorf("failed to dump database: %w", err)
 	}
-	fmt.Printf("%s Database dumped successfully\n", green("✓"))
+	if !flagDumpJSON {
+		fmt.Printf("%s Database dumped successfully\n", green("✓"))
+	}
 
 	// Step 2: Copy filestore
-	fmt.Printf("%s Copying filestore...\n", yellow("→"))
+	if !flagDumpJSON {
+		fmt.Printf("%s Copying filestore...\n", yellow("→"))
+	}
 	filestoreDir := filepath.Join(tmpDir, "filestore")
 	if err := copyFilestore(state, dbName, filestoreDir); err != nil {
 		return fmt.Errorf("failed to copy filestore: %w", err)
 	}
-	fmt.Printf("%s Filestore copied successfully\n", green("✓"))
+	if !flagDumpJSON {
+		fmt.Printf("%s Filestore copied successfully\n", green("✓"))
+	}
 
 	// Step 3: Create zip archive
-	fmt.Printf("%s Creating zip archive...\n", yellow("→"))
+	if !flagDumpJSON {
+		fmt.Printf("%s Creating zip archive...\n", yellow("→"))
+	}
 	if err := createZipArchive(tmpDir, outputFile); err != nil {
 		return fmt.Errorf("failed to create zip archive: %w", err)
 	}
@@ -107,6 +129,9 @@ func runDump(cmd *cobra.Command, args []string) error {
 	fileInfo, _ := os.Stat(outputFile)
 	sizeInMB := float64(fileInfo.Size()) / (1024 * 1024)
 
+	if flagDumpJSON {
+		return output.PrintJSON(dumpReport{Project: state.ProjectName, Database: dbName, File: outputFile, SizeMB: sizeInMB})
+	}
 	fmt.Printf("\n%s Backup created successfully!\n", green("✓"))
 	fmt.Printf("  File: %s\n", cyan(outputFile))
 	fmt.Printf("  Size: %s\n", cyan(fmt.Sprintf("%.2f MB", sizeInMB)))

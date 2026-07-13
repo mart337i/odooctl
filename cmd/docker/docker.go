@@ -10,7 +10,10 @@ var Cmd = &cobra.Command{
 
 func init() {
 	Cmd.AddCommand(createCmd)
+	Cmd.AddCommand(composeCmd)
 	Cmd.AddCommand(runCmd)
+	Cmd.AddCommand(execCmd)
+	Cmd.AddCommand(restartCmd)
 	Cmd.AddCommand(stopCmd)
 	Cmd.AddCommand(statusCmd)
 	Cmd.AddCommand(logsCmd)
@@ -22,8 +25,11 @@ func init() {
 	Cmd.AddCommand(reconfigureCmd)
 	Cmd.AddCommand(gotoCmd)
 	Cmd.AddCommand(dbCmd)
+	Cmd.AddCommand(sqlCmd)
 	Cmd.AddCommand(odooBinCmd)
 	Cmd.AddCommand(shellCmd)
+	Cmd.AddCommand(openCmd)
+	Cmd.AddCommand(debugInfoCmd)
 	Cmd.AddCommand(dumpCmd)
 	Cmd.AddCommand(depsCmd)
 }

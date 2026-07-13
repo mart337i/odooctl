@@ -8,13 +8,26 @@ import (
 
 	"github.com/mart337i/odooctl/internal/config"
 	modlib "github.com/mart337i/odooctl/internal/module"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/spf13/cobra"
 )
+
+var flagChangedJSON bool
+
+type changedReport struct {
+	New     []string `json:"new"`
+	Changed []string `json:"changed"`
+	Clean   bool     `json:"clean"`
+}
 
 var changedCmd = &cobra.Command{
 	Use:   "changed",
 	Short: "List local modules whose hashes changed since last install",
 	RunE:  runChanged,
+}
+
+func init() {
+	changedCmd.Flags().BoolVar(&flagChangedJSON, "json", false, "Print JSON output")
 }
 
 func runChanged(cmd *cobra.Command, args []string) error {
@@ -38,6 +51,9 @@ func runChanged(cmd *cobra.Command, args []string) error {
 		} else if stored[name] != hash {
 			changedModules = append(changedModules, name)
 		}
+	}
+	if flagChangedJSON {
+		return output.PrintJSON(changedReport{New: newModules, Changed: changedModules, Clean: len(newModules) == 0 && len(changedModules) == 0})
 	}
 	if len(newModules) == 0 && len(changedModules) == 0 {
 		fmt.Println("No local module changes detected")

@@ -8,6 +8,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/mart337i/odooctl/internal/project"
 	"github.com/mart337i/odooctl/internal/scaffold"
 	"github.com/mart337i/odooctl/pkg/prompt"
@@ -15,12 +16,23 @@ import (
 )
 
 var (
-	flagAuthor      string
-	flagVersion     string
-	flagDepends     string
-	flagDescription string
-	flagWithModel   bool
+	flagAuthor       string
+	flagVersion      string
+	flagDepends      string
+	flagDescription  string
+	flagWithModel    bool
+	flagScaffoldJSON bool
 )
+
+type scaffoldReport struct {
+	Module      string   `json:"module"`
+	Location    string   `json:"location"`
+	OdooVersion string   `json:"odoo_version"`
+	Depends     []string `json:"depends"`
+	WithModel   bool     `json:"with_model"`
+	Model       string   `json:"model,omitempty"`
+	NextSteps   []string `json:"next_steps"`
+}
 
 var scaffoldCmd = &cobra.Command{
 	Use:   "scaffold <name>",
@@ -41,6 +53,7 @@ func init() {
 	scaffoldCmd.Flags().StringVarP(&flagDepends, "depends", "d", "base", "Dependencies (comma-separated)")
 	scaffoldCmd.Flags().StringVar(&flagDescription, "description", "", "Module description")
 	scaffoldCmd.Flags().BoolVarP(&flagWithModel, "model", "m", false, "Include a model with the same name")
+	scaffoldCmd.Flags().BoolVar(&flagScaffoldJSON, "json", false, "Print JSON output")
 }
 
 func runScaffold(cmd *cobra.Command, args []string) error {
@@ -102,6 +115,9 @@ func runScaffold(cmd *cobra.Command, args []string) error {
 	if err := scaffold.CreateModule(moduleName, config); err != nil {
 		return fmt.Errorf("failed to create module: %w", err)
 	}
+	if flagScaffoldJSON {
+		return output.PrintJSON(buildScaffoldReport(moduleName, odooVersion, depends, flagWithModel))
+	}
 
 	// Print summary
 	green := color.New(color.FgGreen).SprintFunc()
@@ -126,6 +142,25 @@ func runScaffold(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	return nil
+}
+
+func buildScaffoldReport(moduleName, odooVersion string, depends []string, withModel bool) scaffoldReport {
+	report := scaffoldReport{
+		Module:      moduleName,
+		Location:    filepath.Join(".", moduleName),
+		OdooVersion: odooVersion,
+		Depends:     append([]string{}, depends...),
+		WithModel:   withModel,
+		NextSteps: []string{
+			fmt.Sprintf("Edit %s", filepath.Join(moduleName, "__manifest__.py")),
+			fmt.Sprintf("odooctl docker install %s", moduleName),
+		},
+	}
+	if withModel {
+		report.Model = strings.ReplaceAll(moduleName, "_", ".")
+		report.NextSteps = append(report.NextSteps, fmt.Sprintf("Edit %s", filepath.Join(moduleName, "models", moduleName+".py")))
+	}
+	return report
 }
 
 func isValidModuleName(name string) bool {

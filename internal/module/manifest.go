@@ -8,14 +8,14 @@ import (
 )
 
 type ManifestInfo struct {
-	Module         string
-	Path           string
-	Name           string
-	Version        string
-	Depends        []string
-	ExternalPython []string
-	Installable    bool
-	Application    bool
+	Module         string   `json:"module"`
+	Path           string   `json:"path"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Depends        []string `json:"depends"`
+	ExternalPython []string `json:"external_python"`
+	Installable    bool     `json:"installable"`
+	Application    bool     `json:"application"`
 }
 
 func ParseManifest(moduleDir string) (ManifestInfo, error) {

@@ -56,42 +56,45 @@ func formatBindMountCheckError(hostDir, output string, err error) error {
 
 // Compose runs docker compose commands
 func Compose(state *config.State, args ...string) error {
-	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+	cmd, err := composeCommand(state, args...)
 	if err != nil {
 		return err
 	}
-
-	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
-	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-
-	// Pass GITHUB_TOKEN as environment variable if using GitHub token for enterprise
-	if state.Enterprise && state.EnterpriseGitHubToken != "" {
-		cmd.Env = append(os.Environ(), fmt.Sprintf("GITHUB_TOKEN=%s", state.EnterpriseGitHubToken))
-	}
 
 	return cmd.Run()
 }
 
 // ComposeCommand creates an exec.Cmd for docker compose without running it
 func ComposeCommand(state *config.State, args ...string) *exec.Cmd {
-	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
+	cmd, _ := composeCommand(state, args...)
 	return cmd
 }
 
 // ComposeOutput runs docker compose and returns output
 func ComposeOutput(state *config.State, args ...string) (string, error) {
-	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+	cmd, err := composeCommand(state, args...)
 	if err != nil {
 		return "", err
+	}
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func composeCommand(state *config.State, args ...string) (*exec.Cmd, error) {
+	dir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+	if err != nil {
+		return nil, err
 	}
 
 	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
 	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
-	return string(output), err
+	if state.Enterprise && state.EnterpriseGitHubToken != "" {
+		cmd.Env = append(os.Environ(), fmt.Sprintf("GITHUB_TOKEN=%s", state.EnterpriseGitHubToken))
+	}
+	return cmd, nil
 }
 
 // IsRunning checks if containers are running

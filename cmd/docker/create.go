@@ -11,6 +11,7 @@ import (
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/odoo"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/mart337i/odooctl/internal/project"
 	"github.com/mart337i/odooctl/internal/templates"
 	"github.com/mart337i/odooctl/pkg/prompt"
@@ -26,7 +27,23 @@ var (
 	flagPip             string
 	flagAddonsPaths     []string
 	flagAutoDiscoverPip bool
+	flagCreateJSON      bool
 )
+
+type createReport struct {
+	Project     string       `json:"project"`
+	Environment string       `json:"environment"`
+	OdooVersion string       `json:"odoo_version"`
+	Database    string       `json:"database"`
+	EnvDir      string       `json:"env_dir"`
+	Ports       config.Ports `json:"ports"`
+	Modules     []string     `json:"modules"`
+	AddonsPaths []string     `json:"addons_paths"`
+	PipPackages []string     `json:"pip_packages"`
+	Enterprise  bool         `json:"enterprise"`
+	AuthMethod  string       `json:"auth_method,omitempty"`
+	NextSteps   []string     `json:"next_steps"`
+}
 
 var createCmd = &cobra.Command{
 	Use:   "create",
@@ -44,6 +61,7 @@ func init() {
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated or path to requirements.txt)")
 	createCmd.Flags().StringArrayVarP(&flagAddonsPaths, "addons-path", "a", nil, "Additional addons directories (can specify multiple times)")
 	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests during create")
+	createCmd.Flags().BoolVar(&flagCreateJSON, "json", false, "Print JSON output")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -168,7 +186,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save project link: %w", err)
 	}
 
-	// Print summary
+	if flagCreateJSON {
+		return output.PrintJSON(buildCreateReport(state))
+	}
 	printCreateSummary(state)
 
 	return nil
@@ -404,4 +424,35 @@ func printCreateSummary(state *config.State) {
 	fmt.Println("Next steps:")
 	fmt.Printf("  1. %s  # Build image and initialize database\n", cyan("odooctl docker run -i"))
 	fmt.Printf("  2. %s   # View container status\n", cyan("odooctl docker status"))
+}
+
+func buildCreateReport(state *config.State) createReport {
+	dir, _ := config.EnvironmentDir(state.ProjectName, state.Branch)
+	authMethod := ""
+	if state.Enterprise {
+		authMethod = "ssh-agent"
+		if state.EnterpriseGitHubToken != "" {
+			authMethod = "github-token"
+		} else if state.EnterpriseSSHKeyPath != "" {
+			authMethod = "ssh-key"
+		}
+	}
+	return createReport{
+		Project:     state.ProjectName,
+		Environment: state.Branch,
+		OdooVersion: state.OdooVersion,
+		Database:    state.DBName(),
+		EnvDir:      dir,
+		Ports:       state.Ports,
+		Modules:     append([]string{}, state.Modules...),
+		AddonsPaths: append([]string{}, state.AddonsPaths...),
+		PipPackages: append([]string{}, state.PipPackages...),
+		Enterprise:  state.Enterprise,
+		AuthMethod:  authMethod,
+		NextSteps: []string{
+			"odooctl docker run -i",
+			"odooctl docker status",
+			"odooctl ai context",
+		},
+	}
 }

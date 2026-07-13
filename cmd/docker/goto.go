@@ -11,9 +11,12 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mart337i/odooctl/internal/config"
+	"github.com/mart337i/odooctl/internal/output"
 	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
 )
+
+var flagGotoJSON bool
 
 var gotoCmd = &cobra.Command{
 	Use:   "goto",
@@ -30,12 +33,16 @@ The command will:
 }
 
 type projectInfo struct {
-	Name        string
-	Path        string
-	Branch      string
-	Version     string
-	IsCurrent   bool
-	ProjectRoot string
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Branch      string `json:"branch"`
+	Version     string `json:"version"`
+	IsCurrent   bool   `json:"is_current"`
+	ProjectRoot string `json:"project_root"`
+}
+
+func init() {
+	gotoCmd.Flags().BoolVar(&flagGotoJSON, "json", false, "Print JSON output and skip interactive selection")
 }
 
 func runGoto(cmd *cobra.Command, args []string) error {
@@ -109,6 +116,9 @@ func runGoto(cmd *cobra.Command, args []string) error {
 	sort.Slice(projects, func(i, j int) bool {
 		return projects[i].Name < projects[j].Name
 	})
+	if flagGotoJSON {
+		return output.PrintJSON(projects)
+	}
 
 	// Display tree view
 	fmt.Println("\nOdoo Docker Projects")
