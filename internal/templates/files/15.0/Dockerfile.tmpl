@@ -77,6 +77,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         debugpy \
         ipython \
         lxml_html_clean \
+{{if .BrowserEnabled}}        playwright==1.49.1 \
+{{end}}\
     && printf '%s\n' \
         '#!/bin/sh' \
         'exec /opt/odoo-venv/bin/python3 /usr/bin/odoo "$@"' \
@@ -84,6 +86,22 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && chmod +x /opt/odoo-venv/bin/odoo
 
 ENV PATH="/opt/odoo-venv/bin:${PATH}"
+
+{{if .BrowserEnabled}}
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+ENV CHROME_BIN=/usr/local/bin/chromium
+
+RUN /opt/odoo-venv/bin/python3 -m playwright install --with-deps chromium \
+    && CHROMIUM_PATH="$(find /opt/ms-playwright -type f -path '*/chrome-linux/chrome' | head -n1)" \
+    && test -n "$CHROMIUM_PATH" \
+    && ln -sf "$CHROMIUM_PATH" /usr/local/bin/chromium \
+    && ln -sf "$CHROMIUM_PATH" /usr/local/bin/chromium-browser \
+    && ln -sf "$CHROMIUM_PATH" /usr/local/bin/google-chrome \
+    && mkdir -p /browser-artifacts \
+    && chmod -R 755 /opt/ms-playwright \
+    && chmod -R 777 /browser-artifacts \
+    && rm -rf /var/lib/apt/lists/*
+{{end}}
 
 {{if .Enterprise}}
 # Clone Odoo Enterprise

@@ -103,6 +103,8 @@ type State struct {
 	PipPackages           []string   `json:"pip_packages"`
 	PythonDepsHash        string     `json:"python_deps_hash,omitempty"`
 	PythonDepsSyncedAt    *time.Time `json:"python_deps_synced_at,omitempty"`
+	BrowserEnabled        bool       `json:"browser_enabled,omitempty"`
+	BrowserProvider       string     `json:"browser_provider,omitempty"`
 	AddonsPaths           []string   `json:"addons_paths"`
 	Ports                 Ports      `json:"ports"`
 	CreatedAt             time.Time  `json:"created_at"`

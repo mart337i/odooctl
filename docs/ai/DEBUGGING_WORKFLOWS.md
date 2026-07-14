@@ -8,7 +8,7 @@ Run:
 odooctl doctor --json
 odooctl docker status --json
 odooctl docker debug-info --json
-odooctl ai debug-report --include-logs
+odooctl ai debug-report --include-logs --include-browser
 ```
 
 Check Docker daemon and bind-mount diagnostics first. On WSL, bind-mount failures usually mean Docker Desktop WSL integration or file sharing is broken.
@@ -45,10 +45,28 @@ Run:
 ```bash
 odooctl ai debug-report --module my_module --include-logs
 odooctl docker logs --errors --since 10m
+odooctl browser inspect /web --json
 odooctl module test my_module
 ```
 
 If a specific test fails, include the exact `--test-tags` command and traceback in the AI prompt.
+
+## Browser Or UI Looks Wrong
+
+Run:
+
+```bash
+odooctl browser doctor --json
+odooctl browser screenshot /web --output /tmp/odoo.png
+odooctl browser inspect /web --json
+odooctl browser trace /web --output /tmp/odoo-trace.zip
+```
+
+For Odoo browser tests:
+
+```bash
+odooctl docker test --web --test-tags /web
+```
 
 ## Safe Cleanup
 

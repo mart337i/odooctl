@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	internalbrowser "github.com/mart337i/odooctl/internal/browser"
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/diagnostics"
 	modlib "github.com/mart337i/odooctl/internal/module"
@@ -23,6 +24,7 @@ type ContextReport struct {
 	Modules      []modlib.ManifestInfo        `json:"modules,omitempty"`
 	Module       *modlib.ManifestInfo         `json:"module,omitempty"`
 	PythonDeps   *diagnostics.PythonDepsInfo  `json:"python_deps,omitempty"`
+	Browser      *internalbrowser.Info        `json:"browser,omitempty"`
 	Checks       []diagnostics.Check          `json:"checks"`
 	Problems     []string                     `json:"problems,omitempty"`
 	NextSteps    []string                     `json:"next_steps,omitempty"`
@@ -76,6 +78,7 @@ func buildContextReport(moduleName string) (ContextReport, error) {
 		Environment:  doctor.Environment,
 		Docker:       doctor.Docker,
 		PythonDeps:   doctor.PythonDeps,
+		Browser:      doctor.Browser,
 		Checks:       doctor.Checks,
 		Problems:     doctor.Problems,
 		NextSteps:    doctor.NextSteps,
@@ -155,6 +158,14 @@ func printContextMarkdown(report ContextReport) {
 		fmt.Printf("- Configured: `%s`\n", joinOrDash(report.PythonDeps.Configured))
 		fmt.Printf("- Missing: `%s`\n", joinOrDash(report.PythonDeps.Missing))
 		fmt.Printf("- Synced: `%t`\n", report.PythonDeps.Synced)
+	}
+
+	if report.Browser != nil {
+		fmt.Println("\n## Browser")
+		fmt.Printf("- Enabled: `%t`\n", report.Browser.Enabled)
+		fmt.Printf("- Supported: `%t`\n", report.Browser.Supported)
+		fmt.Printf("- Provider: `%s`\n", valueOrDash(report.Browser.Provider))
+		fmt.Printf("- Artifacts dir: `%s`\n", valueOrDash(report.Browser.ArtifactsDir))
 	}
 
 	printList("Problems", report.Problems)

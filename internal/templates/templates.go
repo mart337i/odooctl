@@ -29,6 +29,8 @@ type Data struct {
 	EnterpriseSSHKeyPath  string
 	AddonsPaths           []string
 	Ports                 config.Ports
+	BrowserEnabled        bool
+	BrowserProvider       string
 }
 
 // NewData creates template data from state
@@ -52,6 +54,8 @@ func NewData(state *config.State) Data {
 		EnterpriseSSHKeyPath:  state.EnterpriseSSHKeyPath,
 		AddonsPaths:           state.AddonsPaths,
 		Ports:                 state.Ports,
+		BrowserEnabled:        state.BrowserEnabled,
+		BrowserProvider:       state.BrowserProvider,
 	}
 }
 

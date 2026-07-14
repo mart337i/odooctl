@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	internalbrowser "github.com/mart337i/odooctl/internal/browser"
 	"github.com/mart337i/odooctl/internal/config"
 	pydeps "github.com/mart337i/odooctl/internal/deps"
 	dockerlib "github.com/mart337i/odooctl/internal/docker"
@@ -80,17 +81,18 @@ type PythonDepsInfo struct {
 }
 
 type Report struct {
-	GeneratedAt  time.Time        `json:"generated_at"`
-	OK           bool             `json:"ok"`
-	Status       CheckStatus      `json:"status"`
-	Project      *ProjectInfo     `json:"project,omitempty"`
-	Environment  *EnvironmentInfo `json:"environment,omitempty"`
-	Docker       DockerInfo       `json:"docker"`
-	PythonDeps   *PythonDepsInfo  `json:"python_deps,omitempty"`
-	Checks       []Check          `json:"checks"`
-	Problems     []string         `json:"problems"`
-	NextSteps    []string         `json:"next_steps"`
-	SafeCommands []string         `json:"safe_commands"`
+	GeneratedAt  time.Time             `json:"generated_at"`
+	OK           bool                  `json:"ok"`
+	Status       CheckStatus           `json:"status"`
+	Project      *ProjectInfo          `json:"project,omitempty"`
+	Environment  *EnvironmentInfo      `json:"environment,omitempty"`
+	Docker       DockerInfo            `json:"docker"`
+	PythonDeps   *PythonDepsInfo       `json:"python_deps,omitempty"`
+	Browser      *internalbrowser.Info `json:"browser,omitempty"`
+	Checks       []Check               `json:"checks"`
+	Problems     []string              `json:"problems"`
+	NextSteps    []string              `json:"next_steps"`
+	SafeCommands []string              `json:"safe_commands"`
 }
 
 func Collect(cwd string) Report {
@@ -128,6 +130,15 @@ func Collect(cwd string) Report {
 	}
 
 	report.collectDocker(state)
+	browserInfo := internalbrowser.StaticInfo(state)
+	report.Browser = &browserInfo
+	if state.BrowserEnabled && !browserInfo.Supported {
+		report.add(Check{ID: "browser", Name: "Browser tooling", Status: StatusWarning, Message: "Browser tooling is enabled for an unsupported Odoo version", Detail: state.OdooVersion})
+	} else if state.BrowserEnabled {
+		report.add(Check{ID: "browser", Name: "Browser tooling", Status: StatusOK, Message: "Browser tooling is enabled"})
+	} else {
+		report.add(Check{ID: "browser", Name: "Browser tooling", Status: StatusOK, Message: "Browser tooling is disabled", Detail: "Optional. Run 'odooctl docker reconfigure --browser --rebuild' to enable Playwright Chromium"})
+	}
 	report.PythonDeps = collectPythonDeps(state)
 	if report.PythonDeps != nil && len(report.PythonDeps.Missing) > 0 {
 		report.add(Check{ID: "python_deps", Name: "Python dependencies", Status: StatusWarning, Message: "Manifest Python dependencies are not synced", Detail: strings.Join(report.PythonDeps.Missing, ", ")})

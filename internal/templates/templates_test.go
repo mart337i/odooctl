@@ -86,3 +86,58 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderBrowserEnabledIncludesPlaywrightChromium(t *testing.T) {
+	for _, version := range []string{"15.0", "16.0", "17.0", "18.0", "19.0"} {
+		t.Run(version, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			state := &config.State{
+				ProjectName:     "browser-project",
+				OdooVersion:     version,
+				Branch:          strings.ReplaceAll(version, ".", ""),
+				ProjectRoot:     home,
+				BrowserEnabled:  true,
+				BrowserProvider: "playwright-chromium",
+				Ports:           config.CalculatePorts(version),
+			}
+			if err := Render(state); err != nil {
+				t.Fatalf("Render() error = %v", err)
+			}
+			envDir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dockerfileData, err := os.ReadFile(filepath.Join(envDir, "Dockerfile"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dockerfile := string(dockerfileData)
+			for _, required := range []string{
+				"playwright==1.49.1",
+				"PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
+				"CHROME_BIN=/usr/local/bin/chromium",
+				"python3 -m playwright install --with-deps chromium",
+				"/usr/local/bin/google-chrome",
+			} {
+				if !strings.Contains(dockerfile, required) {
+					t.Fatalf("Dockerfile missing browser pattern %q", required)
+				}
+			}
+			composeData, err := os.ReadFile(filepath.Join(envDir, "docker-compose.yml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			compose := string(composeData)
+			for _, required := range []string{
+				"PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright",
+				"CHROME_BIN: /usr/local/bin/chromium",
+				"./browser-artifacts:/browser-artifacts",
+			} {
+				if !strings.Contains(compose, required) {
+					t.Fatalf("docker-compose.yml missing browser pattern %q", required)
+				}
+			}
+		})
+	}
+}

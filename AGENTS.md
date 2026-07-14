@@ -42,6 +42,7 @@ odooctl docker run -i
 odooctl docker install <module>
 odooctl docker sql "select ..."
 odooctl odoo update-apps
+odooctl docker test --web --test-tags /web
 odooctl docker test --modules <module>
 odooctl module test <module>
 ```
@@ -51,5 +52,7 @@ odooctl module test <module>
 Use `odooctl doctor --json` first. If Docker bind mounts fail, fix Docker Desktop WSL/file sharing before trying Odoo commands.
 
 Use `odooctl ai debug-report --module <module> --include-logs` when the user reports an install, upgrade, test, or startup failure.
+
+Use `odooctl browser doctor --json`, `odooctl browser inspect /web --json`, `odooctl browser screenshot /web`, or `odooctl browser trace /web` when browser/design inspection is needed and the environment has browser tooling enabled.
 
 Redact secrets from any copied logs or config. `odooctl ai debug-report` redacts common token/password patterns by default.

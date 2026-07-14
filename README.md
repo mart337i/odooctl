@@ -292,6 +292,49 @@ odooctl odoo update-apps
 odooctl odoo module-state my_module --json
 ```
 
+## Browser, Design, and Web Test Workflows
+
+Enable Playwright Chromium when creating or reconfiguring an environment:
+
+```bash
+odooctl docker create --browser
+odooctl docker reconfigure --browser --rebuild
+```
+
+Browser tooling is supported for Odoo 15.0+ environments. It installs Python
+Playwright and Chromium inside the Odoo image, exposes `chromium` and
+`google-chrome` for Odoo's browser tests, and stores generated artifacts under
+the environment's `browser-artifacts/` directory.
+
+Check browser readiness:
+
+```bash
+odooctl browser doctor
+odooctl browser doctor --json
+```
+
+Use browser inspection for AI-assisted design and debugging:
+
+```bash
+odooctl browser snapshot /web
+odooctl browser inspect /web --json
+odooctl browser screenshot /web --output /tmp/odoo.png
+odooctl browser check /web --expect-text "Discuss"
+odooctl browser trace /web --output /tmp/odoo-trace.zip
+```
+
+If login is needed:
+
+```bash
+odooctl browser inspect /web --login admin --password admin --json
+```
+
+Run Odoo web/browser tests with an early Chromium readiness check:
+
+```bash
+odooctl docker test --web --test-tags /web
+```
+
 ## Using AI With odooctl
 
 odooctl can generate local, redacted context for ChatGPT, Claude, OpenCode,
@@ -340,6 +383,13 @@ odooctl docker install --list-only --json
 odooctl docker debug-info --json
 ```
 
+For browser or design tasks, first enable browser tooling and then use:
+
+```bash
+odooctl browser doctor --json
+odooctl browser inspect /web --json
+```
+
 Agents should not run destructive commands such as `odooctl docker reset -v`,
 `odooctl docker reset -vc`, or `odooctl docker deps clean` unless the developer
 explicitly approves the data loss.
@@ -356,7 +406,19 @@ explicitly approves the data loss.
 | `odooctl ai context --module my_module` | Print context focused on one module |
 | `odooctl ai context --format json` | Print machine-readable AI context |
 | `odooctl ai debug-report --include-logs` | Print a redacted debugging report with recent logs |
+| `odooctl ai debug-report --include-browser` | Include Playwright Chromium runtime status |
 | `odooctl ai prompt debug --module my_module` | Generate a ready-to-paste debugging prompt |
+
+### Browser Commands
+
+| Command | Description |
+|---------|-------------|
+| `odooctl browser doctor` | Check Playwright Chromium availability in the Odoo image |
+| `odooctl browser inspect` | Return page title, visible text, console errors, and failed requests |
+| `odooctl browser snapshot` | Print a compact visible-text snapshot |
+| `odooctl browser screenshot` | Capture a full-page screenshot |
+| `odooctl browser check` | Assert that expected visible text appears |
+| `odooctl browser trace` | Record a Playwright trace ZIP |
 
 ### JSON Output
 
@@ -392,6 +454,11 @@ odooctl module scaffold my_module --json
 odooctl module migrate plan my_module --json
 odooctl module migrate scaffold my_module --to 19.0.1.0.0 --json
 odooctl odoo module-state my_module --json
+odooctl browser doctor --json
+odooctl browser inspect /web --json
+odooctl browser screenshot /web --json
+odooctl browser check /web --expect-text "Discuss" --json
+odooctl browser trace /web --json
 ```
 
 ### Docker Commands

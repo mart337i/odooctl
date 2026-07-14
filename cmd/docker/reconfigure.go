@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/browser"
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
@@ -21,6 +22,8 @@ var (
 	flagReconfigRebuild      bool
 	flagReconfigStopFirst    bool
 	flagReconfigNoCache      bool
+	flagReconfigBrowser      bool
+	flagReconfigNoBrowser    bool
 )
 
 var reconfigureCmd = &cobra.Command{
@@ -42,6 +45,9 @@ Examples:
   # Auto-discover dependencies
   odooctl docker reconfigure --auto-discover-deps
 
+  # Enable Playwright Chromium browser tooling
+  odooctl docker reconfigure --browser --rebuild
+
   # Combine options
   odooctl docker reconfigure --add-pip requests --add-addons-path ~/addons --rebuild`,
 	RunE: runReconfigure,
@@ -54,12 +60,20 @@ func init() {
 	reconfigureCmd.Flags().BoolVar(&flagReconfigRebuild, "rebuild", true, "Rebuild container after reconfiguring")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigStopFirst, "stop-first", true, "Stop containers before reconfiguring")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigNoCache, "no-cache", false, "Rebuild without Docker layer cache")
+	reconfigureCmd.Flags().BoolVar(&flagReconfigBrowser, "browser", false, "Enable Playwright Chromium browser tooling (Odoo 15.0+)")
+	reconfigureCmd.Flags().BoolVar(&flagReconfigNoBrowser, "no-browser", false, "Disable browser tooling in generated config")
 }
 
 func runReconfigure(cmd *cobra.Command, args []string) error {
 	state, err := loadState()
 	if err != nil {
 		return err
+	}
+	if flagReconfigBrowser && flagReconfigNoBrowser {
+		return fmt.Errorf("--browser and --no-browser cannot be used together")
+	}
+	if flagReconfigBrowser && !browser.SupportsVersion(state.OdooVersion) {
+		return fmt.Errorf("--browser is supported for Odoo 15.0+ environments; current version is %s", state.OdooVersion)
 	}
 
 	green := color.New(color.FgGreen).SprintFunc()
@@ -113,7 +127,18 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if anything changed
-	if len(newPipPackages) == len(state.PipPackages) && len(newAddonsPaths) == len(state.AddonsPaths) {
+	newBrowserEnabled := state.BrowserEnabled
+	newBrowserProvider := state.BrowserProvider
+	if flagReconfigBrowser {
+		newBrowserEnabled = true
+		newBrowserProvider = browser.ProviderPlaywrightChromium
+	}
+	if flagReconfigNoBrowser {
+		newBrowserEnabled = false
+		newBrowserProvider = ""
+	}
+
+	if len(newPipPackages) == len(state.PipPackages) && len(newAddonsPaths) == len(state.AddonsPaths) && newBrowserEnabled == state.BrowserEnabled && newBrowserProvider == state.BrowserProvider {
 		fmt.Printf("%s No changes to apply\n", yellow("⚠️"))
 		return nil
 	}
@@ -129,6 +154,8 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	// Update state
 	state.PipPackages = newPipPackages
 	state.AddonsPaths = newAddonsPaths
+	state.BrowserEnabled = newBrowserEnabled
+	state.BrowserProvider = newBrowserProvider
 
 	// Regenerate files
 	if err := templates.Render(state); err != nil {

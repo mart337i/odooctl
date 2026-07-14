@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	internalbrowser "github.com/mart337i/odooctl/internal/browser"
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/docker"
 	"github.com/mart337i/odooctl/internal/output"
@@ -15,10 +16,11 @@ import (
 )
 
 type DebugReport struct {
-	Context  ContextReport `json:"context"`
-	Logs     []LogSection  `json:"logs,omitempty"`
-	LogError string        `json:"log_error,omitempty"`
-	Commands []string      `json:"commands"`
+	Context      ContextReport                 `json:"context"`
+	Logs         []LogSection                  `json:"logs,omitempty"`
+	LogError     string                        `json:"log_error,omitempty"`
+	BrowserCheck *internalbrowser.RuntimeCheck `json:"browser_check,omitempty"`
+	Commands     []string                      `json:"commands"`
 }
 
 type LogSection struct {
@@ -28,11 +30,12 @@ type LogSection struct {
 }
 
 var (
-	flagDebugModule      string
-	flagDebugIncludeLogs bool
-	flagDebugLogLines    int
-	flagDebugOutput      string
-	flagDebugFormat      string
+	flagDebugModule         string
+	flagDebugIncludeLogs    bool
+	flagDebugIncludeBrowser bool
+	flagDebugLogLines       int
+	flagDebugOutput         string
+	flagDebugFormat         string
 )
 
 var debugReportCmd = &cobra.Command{
@@ -45,13 +48,14 @@ var debugReportCmd = &cobra.Command{
 func init() {
 	debugReportCmd.Flags().StringVarP(&flagDebugModule, "module", "m", "", "Focus report on one module")
 	debugReportCmd.Flags().BoolVar(&flagDebugIncludeLogs, "include-logs", false, "Include recent Docker logs")
+	debugReportCmd.Flags().BoolVar(&flagDebugIncludeBrowser, "include-browser", false, "Include Playwright Chromium runtime check")
 	debugReportCmd.Flags().IntVar(&flagDebugLogLines, "log-lines", 200, "Log lines per service when --include-logs is set")
 	debugReportCmd.Flags().StringVarP(&flagDebugOutput, "output", "o", "", "Write report to a file instead of stdout")
 	debugReportCmd.Flags().StringVar(&flagDebugFormat, "format", "markdown", "Output format: markdown or json")
 }
 
 func runDebugReport(cmd *cobra.Command, args []string) error {
-	report, err := buildDebugReport(flagDebugModule, flagDebugIncludeLogs, flagDebugLogLines)
+	report, err := buildDebugReport(flagDebugModule, flagDebugIncludeLogs, flagDebugIncludeBrowser, flagDebugLogLines)
 	if err != nil {
 		return err
 	}
@@ -80,7 +84,7 @@ func runDebugReport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func buildDebugReport(moduleName string, includeLogs bool, logLines int) (DebugReport, error) {
+func buildDebugReport(moduleName string, includeLogs, includeBrowser bool, logLines int) (DebugReport, error) {
 	contextReport, err := buildContextReport(moduleName)
 	if err != nil {
 		return DebugReport{}, err
@@ -101,6 +105,9 @@ func buildDebugReport(moduleName string, includeLogs bool, logLines int) (DebugR
 		)
 	}
 	if !includeLogs || contextReport.Project == nil {
+		if includeBrowser {
+			attachBrowserCheck(&report)
+		}
 		return report, nil
 	}
 
@@ -117,7 +124,23 @@ func buildDebugReport(moduleName string, includeLogs bool, logLines int) (DebugR
 		report.LogError = err.Error()
 	}
 	report.Logs = logs
+	if includeBrowser {
+		attachBrowserCheck(&report)
+	}
 	return report, nil
+}
+
+func attachBrowserCheck(report *DebugReport) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	state, err := config.LoadFromDir(cwd)
+	if err != nil {
+		return
+	}
+	check := internalbrowser.CheckRuntime(state)
+	report.BrowserCheck = &check
 }
 
 func collectLogs(state *config.State, lines int) ([]LogSection, error) {
@@ -163,6 +186,20 @@ func renderDebugReportMarkdown(report DebugReport) string {
 		b.WriteString("```text\n")
 		b.WriteString(report.LogError)
 		b.WriteString("\n```\n")
+	}
+	if report.BrowserCheck != nil {
+		b.WriteString("\n## Browser Runtime\n")
+		b.WriteString(fmt.Sprintf("- Enabled: `%t`\n", report.BrowserCheck.Info.Enabled))
+		b.WriteString(fmt.Sprintf("- Can launch: `%t`\n", report.BrowserCheck.CanLaunch))
+		if report.BrowserCheck.PlaywrightVersion != "" {
+			b.WriteString(fmt.Sprintf("- Playwright: `%s`\n", report.BrowserCheck.PlaywrightVersion))
+		}
+		if report.BrowserCheck.ChromiumPath != "" {
+			b.WriteString(fmt.Sprintf("- Chromium: `%s`\n", report.BrowserCheck.ChromiumPath))
+		}
+		if report.BrowserCheck.Error != "" {
+			b.WriteString(fmt.Sprintf("- Error: `%s`\n", report.BrowserCheck.Error))
+		}
 	}
 	if len(report.Commands) > 0 {
 		b.WriteString("\n## Useful Commands\n")

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
+	"github.com/mart337i/odooctl/internal/browser"
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/odoo"
@@ -28,21 +29,24 @@ var (
 	flagAddonsPaths     []string
 	flagAutoDiscoverPip bool
 	flagCreateJSON      bool
+	flagCreateBrowser   bool
 )
 
 type createReport struct {
-	Project     string       `json:"project"`
-	Environment string       `json:"environment"`
-	OdooVersion string       `json:"odoo_version"`
-	Database    string       `json:"database"`
-	EnvDir      string       `json:"env_dir"`
-	Ports       config.Ports `json:"ports"`
-	Modules     []string     `json:"modules"`
-	AddonsPaths []string     `json:"addons_paths"`
-	PipPackages []string     `json:"pip_packages"`
-	Enterprise  bool         `json:"enterprise"`
-	AuthMethod  string       `json:"auth_method,omitempty"`
-	NextSteps   []string     `json:"next_steps"`
+	Project         string       `json:"project"`
+	Environment     string       `json:"environment"`
+	OdooVersion     string       `json:"odoo_version"`
+	Database        string       `json:"database"`
+	EnvDir          string       `json:"env_dir"`
+	Ports           config.Ports `json:"ports"`
+	Modules         []string     `json:"modules"`
+	AddonsPaths     []string     `json:"addons_paths"`
+	PipPackages     []string     `json:"pip_packages"`
+	Enterprise      bool         `json:"enterprise"`
+	AuthMethod      string       `json:"auth_method,omitempty"`
+	Browser         bool         `json:"browser"`
+	BrowserProvider string       `json:"browser_provider,omitempty"`
+	NextSteps       []string     `json:"next_steps"`
 }
 
 var createCmd = &cobra.Command{
@@ -61,6 +65,7 @@ func init() {
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated or path to requirements.txt)")
 	createCmd.Flags().StringArrayVarP(&flagAddonsPaths, "addons-path", "a", nil, "Additional addons directories (can specify multiple times)")
 	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests during create")
+	createCmd.Flags().BoolVar(&flagCreateBrowser, "browser", false, "Include Playwright Chromium for AI inspection and Odoo browser tests (Odoo 15.0+)")
 	createCmd.Flags().BoolVar(&flagCreateJSON, "json", false, "Print JSON output")
 }
 
@@ -102,6 +107,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		ctx.OdooVersion = version
+	}
+	if flagCreateBrowser && !browser.SupportsVersion(ctx.OdooVersion) {
+		return fmt.Errorf("--browser is supported for Odoo 15.0+ environments; current version is %s", ctx.OdooVersion)
 	}
 
 	// Check for existing environment
@@ -168,6 +176,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		EnterpriseSSHKeyPath:  enterpriseSSHKeyPath,
 		WithoutDemo:           flagWithoutDemo,
 		PipPackages:           pipPkgs,
+		BrowserEnabled:        flagCreateBrowser,
+		BrowserProvider:       browserProvider(flagCreateBrowser),
 		AddonsPaths:           addonsPaths,
 		Ports:                 config.CalculatePorts(ctx.OdooVersion),
 		CreatedAt:             time.Now(),
@@ -192,6 +202,13 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	printCreateSummary(state)
 
 	return nil
+}
+
+func browserProvider(enabled bool) string {
+	if enabled {
+		return browser.ProviderPlaywrightChromium
+	}
+	return ""
 }
 
 // promptEnterpriseAuth returns (token, sshKeyPath, error).
@@ -438,17 +455,19 @@ func buildCreateReport(state *config.State) createReport {
 		}
 	}
 	return createReport{
-		Project:     state.ProjectName,
-		Environment: state.Branch,
-		OdooVersion: state.OdooVersion,
-		Database:    state.DBName(),
-		EnvDir:      dir,
-		Ports:       state.Ports,
-		Modules:     append([]string{}, state.Modules...),
-		AddonsPaths: append([]string{}, state.AddonsPaths...),
-		PipPackages: append([]string{}, state.PipPackages...),
-		Enterprise:  state.Enterprise,
-		AuthMethod:  authMethod,
+		Project:         state.ProjectName,
+		Environment:     state.Branch,
+		OdooVersion:     state.OdooVersion,
+		Database:        state.DBName(),
+		EnvDir:          dir,
+		Ports:           state.Ports,
+		Modules:         append([]string{}, state.Modules...),
+		AddonsPaths:     append([]string{}, state.AddonsPaths...),
+		PipPackages:     append([]string{}, state.PipPackages...),
+		Enterprise:      state.Enterprise,
+		AuthMethod:      authMethod,
+		Browser:         state.BrowserEnabled,
+		BrowserProvider: state.BrowserProvider,
 		NextSteps: []string{
 			"odooctl docker run -i",
 			"odooctl docker status",

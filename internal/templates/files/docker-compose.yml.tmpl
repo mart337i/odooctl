@@ -26,12 +26,19 @@ x-odoo-common: &odoo-common
     USER: odoo
     PASSWORD: odoo
     PYTHONPATH: /opt/odoo-extra-python
+{{- if .BrowserEnabled}}
+    PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
+    CHROME_BIN: /usr/local/bin/chromium
+{{- end}}
   volumes:
     - {{.ProjectRoot}}:/mnt/extra-addons
     - ./odoo.conf:/etc/odoo/odoo.conf:ro
     - odoo-filestore-{{.VersionSuffix}}:/var/lib/odoo/filestore
     - odoo-sessions-{{.VersionSuffix}}:/var/lib/odoo/.local/share/Odoo/sessions
     - odoo-pydeps-{{.VersionSuffix}}:/opt/odoo-extra-python
+{{- if .BrowserEnabled}}
+    - ./browser-artifacts:/browser-artifacts
+{{- end}}
 {{- range $i, $path := .AddonsPaths}}
     - {{$path}}:/mnt/custom-addons-{{$i}}:ro
 {{- end}}

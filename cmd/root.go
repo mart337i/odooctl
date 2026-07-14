@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/mart337i/odooctl/cmd/ai"
+	browsercmd "github.com/mart337i/odooctl/cmd/browser"
 	"github.com/mart337i/odooctl/cmd/docker"
 	"github.com/mart337i/odooctl/cmd/module"
 	odoocmd "github.com/mart337i/odooctl/cmd/odoo"
@@ -30,6 +31,7 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(ai.Cmd)
+	rootCmd.AddCommand(browsercmd.Cmd)
 	rootCmd.AddCommand(docker.Cmd)
 	rootCmd.AddCommand(module.Cmd)
 	rootCmd.AddCommand(odoocmd.Cmd)
