@@ -30,6 +30,8 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.Version = version
+	rootCmd.SetVersionTemplate("odooctl {{.Version}}\n")
 	rootCmd.AddCommand(ai.Cmd)
 	rootCmd.AddCommand(browsercmd.Cmd)
 	rootCmd.AddCommand(docker.Cmd)

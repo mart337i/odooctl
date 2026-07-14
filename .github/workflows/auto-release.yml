@@ -67,7 +67,15 @@ jobs:
           go-version: '1.22'
 
       - name: Build all platforms
-        run: make build-all
+        run: make build-all VERSION=${{ steps.bump.outputs.new_tag }}
+
+      - name: Verify release binary version
+        run: |
+          EXPECTED="odooctl ${{ steps.bump.outputs.new_tag }}"
+          ACTUAL="$(bin/odooctl-linux-amd64 --version)"
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
 
       - name: Create tag and release
         uses: softprops/action-gh-release@v2
