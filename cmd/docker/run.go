@@ -106,6 +106,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if flagRunBuild || flagRunInit {
+		locked, err := ensureSourceCommits(state)
+		if err != nil {
+			return err
+		}
+		if locked {
+			fmt.Printf("%s Locked Odoo source revisions for this environment\n", green("✓"))
+		}
 		refreshed, err := refreshStaleDockerfile(state)
 		if err != nil {
 			return fmt.Errorf("failed to refresh Docker configuration: %w", err)
@@ -116,13 +123,21 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Starting containers...")
-	// Start main containers
-	upArgs := []string{"up"}
-	if flagRunDetach {
-		upArgs = append(upArgs, "-d")
+	// Build once before starting services. Initialization uses the same image and
+	// must not trigger a second network-dependent build.
+	if flagRunBuild || flagRunInit {
+		if err := docker.Compose(state, "build", "odoo"); err != nil {
+			return fmt.Errorf("failed to build Odoo image: %w", err)
+		}
 	}
-	if flagRunBuild {
-		upArgs = append(upArgs, "--build")
+
+	// When initializing, start only infrastructure first. Starting Odoo before
+	// the database is initialized creates a race with the one-shot init job.
+	upArgs := []string{"up"}
+	if flagRunInit {
+		upArgs = append(upArgs, "-d", "db", "mailhog")
+	} else if flagRunDetach {
+		upArgs = append(upArgs, "-d")
 	}
 
 	if err := docker.Compose(state, upArgs...); err != nil {
@@ -132,14 +147,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if depsSynced {
+	if depsSynced && !flagRunInit {
 		if err := docker.Compose(state, "up", "-d", "odoo"); err != nil {
 			return fmt.Errorf("failed to restart Odoo after dependency sync: %w", err)
 		}
 	}
 
 	// Track that build has been done
-	if flagRunBuild && state.BuiltAt == nil {
+	if (flagRunBuild || flagRunInit) && state.BuiltAt == nil {
 		now := time.Now()
 		state.BuiltAt = &now
 		if err := state.Save(); err != nil {
@@ -156,7 +171,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		// handles the demo-data flag correctly for every Odoo version.
 		// Run attached (no -d) so we block until the init container exits.
 		// --abort-on-container-exit ensures compose stops when odoo-init finishes.
-		if err := docker.Compose(state, "--profile", "init", "up", "--build", "--abort-on-container-exit", "odoo-init"); err != nil {
+		if err := docker.Compose(state, "--profile", "init", "up", "--abort-on-container-exit", "odoo-init"); err != nil {
 			return fmt.Errorf("failed to initialize: %w", err)
 		}
 
@@ -171,6 +186,14 @@ func runRun(cmd *cobra.Command, args []string) error {
 		sql := "INSERT INTO ir_config_parameter (key, value) VALUES ('report.url', 'http://odoo:8069') ON CONFLICT (key) DO UPDATE SET value = 'http://odoo:8069';"
 		if err := docker.Compose(state, "exec", "-T", "db", "psql", "-U", "odoo", "-d", state.DBName(), "-c", sql); err != nil {
 			fmt.Printf("%s Warning: failed to configure report.url: %v\n", yellow("⚠️"), err)
+		}
+
+		odooArgs := []string{"up"}
+		if flagRunDetach {
+			odooArgs = append(odooArgs, "-d")
+		}
+		if err := docker.Compose(state, append(odooArgs, "odoo")...); err != nil {
+			return fmt.Errorf("failed to start Odoo after initialization: %w", err)
 		}
 
 		// Track that initialization has been done
@@ -211,7 +234,9 @@ func refreshStaleDockerfile(state *config.State) (bool, error) {
 	}
 
 	dockerfile := string(content)
-	if !strings.Contains(dockerfile, "--break-system-packages") && !strings.Contains(dockerfile, "RUN pip3 install") {
+	legacyGeventConstraintMissing := (state.OdooVersion == "15.0" || state.OdooVersion == "16.0" || state.OdooVersion == "17.0") &&
+		(!strings.Contains(dockerfile, "pip install 'Cython<3'") || !strings.Contains(dockerfile, "pip install --no-build-isolation"))
+	if !strings.Contains(dockerfile, "--break-system-packages") && !strings.Contains(dockerfile, "RUN pip3 install") && !legacyGeventConstraintMissing {
 		return false, nil
 	}
 

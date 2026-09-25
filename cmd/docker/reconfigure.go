@@ -181,6 +181,9 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 
 	// Rebuild if requested
 	if flagReconfigRebuild {
+		if _, err := ensureSourceCommits(state); err != nil {
+			return err
+		}
 		fmt.Println("\nRebuilding container...")
 		buildArgs := []string{"build"}
 		if flagReconfigNoCache {

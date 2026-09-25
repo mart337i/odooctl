@@ -92,6 +92,9 @@ type ProjectLink struct {
 type State struct {
 	ProjectName           string     `json:"project_name"`
 	OdooVersion           string     `json:"odoo_version"`
+	OdooCommit            string     `json:"odoo_commit,omitempty"`
+	EnterpriseCommit      string     `json:"enterprise_commit,omitempty"`
+	DockerSchemaVersion   int        `json:"docker_schema_version,omitempty"`
 	Branch                string     `json:"branch"`
 	IsGitRepo             bool       `json:"is_git_repo"`
 	ProjectRoot           string     `json:"project_root"`
@@ -338,6 +341,7 @@ func Load(projectName, branch string) (*State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	normalizeState(&state)
 
 	return &state, nil
 }
@@ -422,7 +426,16 @@ func loadStateFromEnvDir(envDir string) (*State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	normalizeState(&state)
 	return &state, nil
+}
+
+func normalizeState(state *State) {
+	if state.DockerSchemaVersion == 0 {
+		// Existing state files reference globally named volumes. Keep that
+		// mapping while regenerating them so data is not silently abandoned.
+		state.DockerSchemaVersion = 1
+	}
 }
 
 func parentDirs(dir string) []string {

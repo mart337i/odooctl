@@ -19,39 +19,36 @@ func CheckDaemon() error {
 	return formatDaemonCheckError(strings.TrimSpace(string(output)), err)
 }
 
-func formatDaemonCheckError(output string, err error) error {
-	if err == nil {
-		return nil
+// CheckCompose verifies that the Docker Compose v2 plugin is installed.
+func CheckCompose() error {
+	cmd := exec.Command("docker", "compose", "version")
+	output, err := cmd.CombinedOutput()
+	return formatComposeCheckError(strings.TrimSpace(string(output)), err)
+}
+
+// CheckComposeConfig validates the generated Compose file without starting containers.
+func CheckComposeConfig(state *config.State) error {
+	cmd, err := composeCommand(state, "config", "--quiet")
+	if err != nil {
+		return err
 	}
-	if output == "" {
-		output = err.Error()
-	}
-	return fmt.Errorf("Docker daemon is not available: %s\nStart Docker Desktop or the Docker service, then retry", output)
+	output, err := cmd.CombinedOutput()
+	return formatComposeConfigError(string(output), err)
 }
 
 // CheckBindMount verifies that Docker can see files from a host directory.
 func CheckBindMount(hostDir string) error {
 	marker, err := os.CreateTemp(hostDir, ".odooctl-bind-check-*")
 	if err != nil {
-		return fmt.Errorf("failed to create bind-mount check file in %s: %w", hostDir, err)
+		return formatHostPathCheckError(hostDir, err)
 	}
 	markerName := filepath.Base(marker.Name())
 	_ = marker.Close()
 	defer os.Remove(marker.Name())
 
-	cmd := exec.Command("docker", "run", "--rm", "-v", hostDir+":/mnt/odooctl-bind-check:ro", "alpine:latest", "test", "-f", "/mnt/odooctl-bind-check/"+markerName)
+	cmd := exec.Command("docker", "run", "--rm", "--pull=missing", "--mount", "type=bind,source="+hostDir+",target=/mnt/odooctl-bind-check,readonly", "alpine:3.20", "test", "-f", "/mnt/odooctl-bind-check/"+markerName)
 	output, err := cmd.CombinedOutput()
 	return formatBindMountCheckError(hostDir, strings.TrimSpace(string(output)), err)
-}
-
-func formatBindMountCheckError(hostDir, output string, err error) error {
-	if err == nil {
-		return nil
-	}
-	if output != "" {
-		output = ": " + output
-	}
-	return fmt.Errorf("Docker cannot access files under %s%s\nEnable Docker Desktop WSL integration for this distro or fix Docker file sharing, then retry", hostDir, output)
 }
 
 // Compose runs docker compose commands

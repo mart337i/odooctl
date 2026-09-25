@@ -14,6 +14,7 @@ import (
 	"github.com/mart337i/odooctl/internal/odoo"
 	"github.com/mart337i/odooctl/internal/output"
 	"github.com/mart337i/odooctl/internal/project"
+	"github.com/mart337i/odooctl/internal/repository"
 	"github.com/mart337i/odooctl/internal/templates"
 	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
@@ -33,20 +34,22 @@ var (
 )
 
 type createReport struct {
-	Project         string       `json:"project"`
-	Environment     string       `json:"environment"`
-	OdooVersion     string       `json:"odoo_version"`
-	Database        string       `json:"database"`
-	EnvDir          string       `json:"env_dir"`
-	Ports           config.Ports `json:"ports"`
-	Modules         []string     `json:"modules"`
-	AddonsPaths     []string     `json:"addons_paths"`
-	PipPackages     []string     `json:"pip_packages"`
-	Enterprise      bool         `json:"enterprise"`
-	AuthMethod      string       `json:"auth_method,omitempty"`
-	Browser         bool         `json:"browser"`
-	BrowserProvider string       `json:"browser_provider,omitempty"`
-	NextSteps       []string     `json:"next_steps"`
+	Project          string       `json:"project"`
+	Environment      string       `json:"environment"`
+	OdooVersion      string       `json:"odoo_version"`
+	OdooCommit       string       `json:"odoo_commit"`
+	EnterpriseCommit string       `json:"enterprise_commit,omitempty"`
+	Database         string       `json:"database"`
+	EnvDir           string       `json:"env_dir"`
+	Ports            config.Ports `json:"ports"`
+	Modules          []string     `json:"modules"`
+	AddonsPaths      []string     `json:"addons_paths"`
+	PipPackages      []string     `json:"pip_packages"`
+	Enterprise       bool         `json:"enterprise"`
+	AuthMethod       string       `json:"auth_method,omitempty"`
+	Browser          bool         `json:"browser"`
+	BrowserProvider  string       `json:"browser_provider,omitempty"`
+	NextSteps        []string     `json:"next_steps"`
 }
 
 var createCmd = &cobra.Command{
@@ -163,10 +166,35 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Resolve source revisions once so future builds use the same Community and
+	// Enterprise code even when the branch heads move.
+	odooCommit, err := repository.ResolveBranchCommit(
+		repository.OdooRepository,
+		ctx.OdooVersion,
+		repository.Credentials{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to resolve Odoo %s source revision: %w", ctx.OdooVersion, err)
+	}
+	var enterpriseCommit string
+	if flagEnterprise {
+		enterpriseCommit, err = repository.ResolveBranchCommit(
+			repository.EnterpriseRepository,
+			ctx.OdooVersion,
+			repository.Credentials{Token: enterpriseToken, SSHKeyPath: enterpriseSSHKeyPath},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to resolve Enterprise %s source revision: %w", ctx.OdooVersion, err)
+		}
+	}
+
 	// Build state
 	state := &config.State{
 		ProjectName:           ctx.Name,
 		OdooVersion:           ctx.OdooVersion,
+		OdooCommit:            odooCommit,
+		EnterpriseCommit:      enterpriseCommit,
+		DockerSchemaVersion:   2,
 		Branch:                ctx.Branch,
 		IsGitRepo:             ctx.IsGitRepo,
 		ProjectRoot:           ctx.Root,
@@ -455,19 +483,21 @@ func buildCreateReport(state *config.State) createReport {
 		}
 	}
 	return createReport{
-		Project:         state.ProjectName,
-		Environment:     state.Branch,
-		OdooVersion:     state.OdooVersion,
-		Database:        state.DBName(),
-		EnvDir:          dir,
-		Ports:           state.Ports,
-		Modules:         append([]string{}, state.Modules...),
-		AddonsPaths:     append([]string{}, state.AddonsPaths...),
-		PipPackages:     append([]string{}, state.PipPackages...),
-		Enterprise:      state.Enterprise,
-		AuthMethod:      authMethod,
-		Browser:         state.BrowserEnabled,
-		BrowserProvider: state.BrowserProvider,
+		Project:          state.ProjectName,
+		Environment:      state.Branch,
+		OdooVersion:      state.OdooVersion,
+		OdooCommit:       state.OdooCommit,
+		EnterpriseCommit: state.EnterpriseCommit,
+		Database:         state.DBName(),
+		EnvDir:           dir,
+		Ports:            state.Ports,
+		Modules:          append([]string{}, state.Modules...),
+		AddonsPaths:      append([]string{}, state.AddonsPaths...),
+		PipPackages:      append([]string{}, state.PipPackages...),
+		Enterprise:       state.Enterprise,
+		AuthMethod:       authMethod,
+		Browser:          state.BrowserEnabled,
+		BrowserProvider:  state.BrowserProvider,
 		NextSteps: []string{
 			"odooctl docker run -i",
 			"odooctl docker status",

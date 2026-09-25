@@ -12,50 +12,97 @@ import (
 	"github.com/mart337i/odooctl/internal/config"
 )
 
-//go:embed files/* files/12.0/* files/13.0/* files/14.0/* files/15.0/* files/16.0/* files/17.0/* files/19.0/*
+//go:embed files/*.tmpl
 var templateFS embed.FS
 
 // Data holds template rendering context
 type Data struct {
-	ProjectName           string
-	OdooVersion           string
-	VersionSuffix         string
-	DBName                string
-	ProjectRoot           string
-	InitModules           string
-	WithoutDemo           bool
-	Enterprise            bool
-	EnterpriseGitHubToken string
-	EnterpriseSSHKeyPath  string
-	AddonsPaths           []string
-	Ports                 config.Ports
-	BrowserEnabled        bool
-	BrowserProvider       string
+	ProjectName            string
+	EnvironmentName        string
+	OdooVersion            string
+	OdooCommit             string
+	EnterpriseCommit       string
+	BaseImage              string
+	VersionSuffix          string
+	DBName                 string
+	ProjectRoot            string
+	InitModules            string
+	WithoutDemo            bool
+	Enterprise             bool
+	EnterpriseGitHubToken  string
+	EnterpriseSSHKeyPath   string
+	AddonsPaths            []string
+	Ports                  config.Ports
+	BrowserEnabled         bool
+	BrowserProvider        string
+	IncludeLxmlHTMLClean   bool
+	LegacyGeventBuild      bool
+	DebugpyVersion         string
+	IPythonVersion         string
+	InitDemoFlag           string
+	LegacyResources        bool
+	UseAptOdooDependencies bool
 }
 
 // NewData creates template data from state
 func NewData(state *config.State) Data {
 	versionSuffix := strings.Replace(state.OdooVersion, ".", "", 1)
 	dbName := "odoo-" + versionSuffix
+	environmentName := config.SanitizeName(strings.ToLower(fmt.Sprintf("%s-%s-%s", state.ProjectName, state.Branch, versionSuffix)))
+	baseImage := "ubuntu:noble"
+	debugpyVersion := "1.8.14"
+	ipythonVersion := "8.27.0"
+	if state.OdooVersion == "12.0" || state.OdooVersion == "13.0" {
+		baseImage = "debian:buster-slim"
+		debugpyVersion = "1.6.7"
+		ipythonVersion = "7.34.0"
+	} else if state.OdooVersion == "14.0" {
+		baseImage = "ubuntu:focal"
+		debugpyVersion = "1.8.1"
+		ipythonVersion = "8.12.3"
+	} else if state.OdooVersion == "15.0" || state.OdooVersion == "16.0" || state.OdooVersion == "17.0" {
+		baseImage = "ubuntu:jammy"
+		debugpyVersion = "1.8.1"
+		ipythonVersion = "8.12.3"
+	}
+	initDemoFlag := ""
+	if isVersion19OrHigher(state.OdooVersion) {
+		if !state.WithoutDemo {
+			initDemoFlag = "--with-demo"
+		}
+	} else if state.WithoutDemo {
+		initDemoFlag = "--without-demo=all"
+	}
 
 	modules := []string{"base", "web"}
 	modules = append(modules, state.Modules...)
 
 	return Data{
-		ProjectName:           state.ProjectName,
-		OdooVersion:           state.OdooVersion,
-		VersionSuffix:         versionSuffix,
-		DBName:                dbName,
-		ProjectRoot:           state.ProjectRoot,
-		InitModules:           strings.Join(modules, ","),
-		WithoutDemo:           state.WithoutDemo,
-		Enterprise:            state.Enterprise,
-		EnterpriseGitHubToken: state.EnterpriseGitHubToken,
-		EnterpriseSSHKeyPath:  state.EnterpriseSSHKeyPath,
-		AddonsPaths:           state.AddonsPaths,
-		Ports:                 state.Ports,
-		BrowserEnabled:        state.BrowserEnabled,
-		BrowserProvider:       state.BrowserProvider,
+		ProjectName:            state.ProjectName,
+		EnvironmentName:        environmentName,
+		OdooVersion:            state.OdooVersion,
+		OdooCommit:             state.OdooCommit,
+		EnterpriseCommit:       state.EnterpriseCommit,
+		BaseImage:              baseImage,
+		VersionSuffix:          versionSuffix,
+		DBName:                 dbName,
+		ProjectRoot:            state.ProjectRoot,
+		InitModules:            strings.Join(modules, ","),
+		WithoutDemo:            state.WithoutDemo,
+		Enterprise:             state.Enterprise,
+		EnterpriseGitHubToken:  state.EnterpriseGitHubToken,
+		EnterpriseSSHKeyPath:   state.EnterpriseSSHKeyPath,
+		AddonsPaths:            state.AddonsPaths,
+		Ports:                  state.Ports,
+		BrowserEnabled:         state.BrowserEnabled,
+		BrowserProvider:        state.BrowserProvider,
+		IncludeLxmlHTMLClean:   state.OdooVersion != "12.0" && state.OdooVersion != "13.0",
+		LegacyGeventBuild:      state.OdooVersion == "15.0" || state.OdooVersion == "16.0" || state.OdooVersion == "17.0",
+		DebugpyVersion:         debugpyVersion,
+		IPythonVersion:         ipythonVersion,
+		InitDemoFlag:           initDemoFlag,
+		LegacyResources:        state.DockerSchemaVersion == 1,
+		UseAptOdooDependencies: state.OdooVersion == "12.0" || state.OdooVersion == "13.0",
 	}
 }
 
@@ -63,6 +110,11 @@ func NewData(state *config.State) Data {
 // otherwise returns the base template path. For v19+, it falls back to 19.0 templates
 // to ensure proper demo data handling (inverted behavior in v19+).
 func getTemplatePath(version, filename string) string {
+	// Dockerfiles are generated from one source-build template. The Odoo
+	// version only changes its rendered build arguments and base image.
+	if filename == "Dockerfile.tmpl" {
+		return "files/Dockerfile.tmpl"
+	}
 	// Check for exact version-specific template first
 	versionPath := fmt.Sprintf("files/%s/%s", version, filename)
 	if _, err := templateFS.ReadFile(versionPath); err == nil {
@@ -104,6 +156,11 @@ func Render(state *config.State) error {
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
+	}
+	if state.BrowserEnabled {
+		if err := os.MkdirAll(filepath.Join(dir, "browser-artifacts"), 0755); err != nil {
+			return err
+		}
 	}
 
 	data := NewData(state)

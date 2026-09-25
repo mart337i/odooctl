@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -27,11 +28,15 @@ const (
 )
 
 type Check struct {
-	ID      string      `json:"id"`
-	Name    string      `json:"name"`
-	Status  CheckStatus `json:"status"`
-	Message string      `json:"message"`
-	Detail  string      `json:"detail,omitempty"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Status      CheckStatus `json:"status"`
+	Code        string      `json:"code,omitempty"`
+	Category    string      `json:"category,omitempty"`
+	Retryable   bool        `json:"retryable"`
+	Message     string      `json:"message"`
+	Detail      string      `json:"detail,omitempty"`
+	Remediation []string    `json:"remediation,omitempty"`
 }
 
 type ProjectInfo struct {
@@ -61,15 +66,17 @@ type ServiceStatus struct {
 }
 
 type DockerInfo struct {
-	CLIPath       string          `json:"cli_path,omitempty"`
-	Context       string          `json:"context,omitempty"`
-	DaemonOK      bool            `json:"daemon_ok"`
-	BindMountOK   bool            `json:"bind_mount_ok"`
-	Services      []ServiceStatus `json:"services,omitempty"`
-	ServiceError  string          `json:"service_error,omitempty"`
-	OdooURL       string          `json:"odoo_url,omitempty"`
-	MailHogURL    string          `json:"mailhog_url,omitempty"`
-	DebugEndpoint string          `json:"debug_endpoint,omitempty"`
+	CLIPath       string                 `json:"cli_path,omitempty"`
+	Context       string                 `json:"context,omitempty"`
+	Platform      dockerlib.HostPlatform `json:"platform"`
+	ComposeOK     bool                   `json:"compose_ok"`
+	DaemonOK      bool                   `json:"daemon_ok"`
+	BindMountOK   bool                   `json:"bind_mount_ok"`
+	Services      []ServiceStatus        `json:"services,omitempty"`
+	ServiceError  string                 `json:"service_error,omitempty"`
+	OdooURL       string                 `json:"odoo_url,omitempty"`
+	MailHogURL    string                 `json:"mailhog_url,omitempty"`
+	DebugEndpoint string                 `json:"debug_endpoint,omitempty"`
 }
 
 type PythonDepsInfo struct {
@@ -130,6 +137,25 @@ func Collect(cwd string) Report {
 	}
 
 	report.collectDocker(state)
+	available, conflicting := state.Ports.CheckPortsAvailable()
+	conflicting = externalPortConflicts(state.Ports, report.Docker.Services, conflicting)
+	available = len(conflicting) == 0
+	if !available {
+		report.add(Check{
+			ID:       "docker_ports",
+			Name:     "Docker ports",
+			Status:   StatusWarning,
+			Code:     "docker_port_unavailable",
+			Category: "network",
+			Message:  "Configured Docker ports are already in use",
+			Detail:   fmt.Sprintf("ports: %v", conflicting),
+			Remediation: []string{
+				"Run 'odooctl docker run' to regenerate the environment with available ports",
+			},
+		})
+	} else {
+		report.add(Check{ID: "docker_ports", Name: "Docker ports", Status: StatusOK, Message: "Configured Docker ports are available"})
+	}
 	browserInfo := internalbrowser.StaticInfo(state)
 	report.Browser = &browserInfo
 	if state.BrowserEnabled && !browserInfo.Supported {
@@ -157,6 +183,25 @@ func Collect(cwd string) Report {
 	return report
 }
 
+func externalPortConflicts(ports config.Ports, services []ServiceStatus, conflicting []int) []int {
+	running := make(map[string]bool)
+	for _, service := range services {
+		if service.State == "running" {
+			running[service.Name] = true
+		}
+	}
+
+	var external []int
+	for _, port := range conflicting {
+		ownedByRunningService := (running["odoo"] && (port == ports.Odoo || port == ports.Debug)) ||
+			(running["mailhog"] && (port == ports.Mailhog || port == ports.SMTP))
+		if !ownedByRunningService {
+			external = append(external, port)
+		}
+	}
+	return external
+}
+
 func collectEnvironment(state *config.State, envDir string) *EnvironmentInfo {
 	info := &EnvironmentInfo{
 		Dir:            envDir,
@@ -177,34 +222,50 @@ func collectEnvironment(state *config.State, envDir string) *EnvironmentInfo {
 }
 
 func (r *Report) collectDocker(state *config.State) {
+	r.Docker.Platform = dockerlib.DetectHostPlatform()
 	cliPath, err := exec.LookPath("docker")
 	if err != nil {
-		r.add(Check{ID: "docker_cli", Name: "Docker CLI", Status: StatusError, Message: "Docker CLI was not found", Detail: err.Error()})
-		r.NextSteps = append(r.NextSteps, "Install Docker Desktop or Docker Engine")
+		r.addDockerError("docker_cli", "Docker CLI", dockerlib.FormatCLIUnavailableError(err))
 		return
 	}
 	r.Docker.CLIPath = cliPath
 	r.add(Check{ID: "docker_cli", Name: "Docker CLI", Status: StatusOK, Message: "Docker CLI found", Detail: cliPath})
+
+	composeOK := true
+	if err := dockerlib.CheckCompose(); err != nil {
+		composeOK = false
+		r.addDockerError("docker_compose", "Docker Compose", err)
+	} else {
+		r.Docker.ComposeOK = true
+		r.add(Check{ID: "docker_compose", Name: "Docker Compose", Status: StatusOK, Message: "Docker Compose plugin is available"})
+		if err := dockerlib.CheckComposeConfig(state); err != nil {
+			composeOK = false
+			r.addDockerError("docker_compose_config", "Docker Compose configuration", err)
+		} else {
+			r.add(Check{ID: "docker_compose_config", Name: "Docker Compose configuration", Status: StatusOK, Message: "Docker Compose configuration is valid"})
+		}
+	}
 
 	if context, err := commandOutput("docker", "context", "show"); err == nil {
 		r.Docker.Context = context
 	}
 
 	if err := dockerlib.CheckDaemon(); err != nil {
-		r.add(Check{ID: "docker_daemon", Name: "Docker daemon", Status: StatusError, Message: "Docker daemon is not reachable", Detail: err.Error()})
-		r.NextSteps = append(r.NextSteps, "Start Docker Desktop or Docker Engine, then rerun 'odooctl doctor'")
+		r.addDockerError("docker_daemon", "Docker daemon", err)
 		return
 	}
 	r.Docker.DaemonOK = true
 	r.add(Check{ID: "docker_daemon", Name: "Docker daemon", Status: StatusOK, Message: "Docker daemon is reachable"})
 
 	if err := dockerlib.CheckBindMount(state.ProjectRoot); err != nil {
-		r.add(Check{ID: "docker_bind_mount", Name: "Docker bind mount", Status: StatusError, Message: "Docker cannot access project files", Detail: err.Error()})
-		r.NextSteps = append(r.NextSteps, "Enable Docker Desktop WSL integration/file sharing for this distro")
+		r.addDockerError("docker_bind_mount", "Docker bind mount", err)
 		return
 	}
 	r.Docker.BindMountOK = true
 	r.add(Check{ID: "docker_bind_mount", Name: "Docker bind mount", Status: StatusOK, Message: "Docker can access project files"})
+	if !composeOK {
+		return
+	}
 
 	services, err := dockerlib.GetServicesStatus(state)
 	if err != nil {
@@ -230,6 +291,25 @@ func (r *Report) collectDocker(state *config.State) {
 	r.add(Check{ID: "docker_services", Name: "Docker services", Status: StatusOK, Message: "Compose service status read"})
 }
 
+func (r *Report) addDockerError(id, name string, err error) {
+	check := Check{
+		ID:      id,
+		Name:    name,
+		Status:  StatusError,
+		Message: err.Error(),
+	}
+	var diagnostic *dockerlib.DiagnosticError
+	if errors.As(err, &diagnostic) {
+		check.Code = string(diagnostic.Code)
+		check.Category = diagnostic.Category
+		check.Retryable = diagnostic.Retryable
+		check.Message = diagnostic.Summary
+		check.Detail = diagnostic.Detail
+		check.Remediation = append([]string{}, diagnostic.Remediation...)
+	}
+	r.add(check)
+}
+
 func collectPythonDeps(state *config.State) *PythonDepsInfo {
 	dirs := []string{state.ProjectRoot}
 	dirs = append(dirs, state.AddonsPaths...)
@@ -246,6 +326,7 @@ func collectPythonDeps(state *config.State) *PythonDepsInfo {
 
 func (r *Report) add(check Check) {
 	r.Checks = append(r.Checks, check)
+	r.NextSteps = append(r.NextSteps, check.Remediation...)
 	if check.Status == StatusError || check.Status == StatusWarning {
 		problem := check.Message
 		if check.Detail != "" {

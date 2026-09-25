@@ -677,6 +677,9 @@ project root. odooctl does not create a repo-local `.odooctl` marker file.
 {
   "project_name": "my-project",
   "odoo_version": "18.0",
+  "odoo_commit": "<community commit SHA>",
+  "enterprise_commit": "<enterprise commit SHA>",
+  "docker_schema_version": 2,
   "branch": "main",
   "modules": ["sale", "purchase"],
   "ports": {
@@ -691,14 +694,25 @@ project root. odooctl does not create a repo-local `.odooctl` marker file.
 
 ### Docker Container Design
 
+The generated image is built from the `odoo/odoo` and, when enabled, `odoo/enterprise` GitHub repositories rather than an official Odoo Docker image or moving nightly Debian package. `odooctl docker create` resolves the selected branch once and stores the exact commit SHA in `.odooctl-state.json`. Later builds use those SHAs instead of following a moving branch head.
+
 **Why use Python virtual environments?**
 
-The generated Dockerfile installs baseline developer Python tools into `/opt/odoo-venv` instead of the system Python environment:
+The generated Dockerfile installs Odoo's pinned `requirements.txt` (or the matching Debian packages for Odoo 12/13) and baseline developer Python tools into `/opt/odoo-venv` instead of the system Python environment:
 
-- Avoids conflicts with apt-managed Odoo dependencies
+- Builds Community and Enterprise from the same source branch
+- Avoids conflicts with operating-system Python packages
 - Avoids PEP 668 `--break-system-packages` failures on newer base images
 - Keeps Python tooling isolated and first on Odoo's Python path
-- Still exposes apt-installed Odoo packages through `--system-site-packages`
+- Uses the Odoo source tree at `/opt/odoo-src`
+
+**Build caching:**
+- Stable system packages and Odoo dependencies are placed before generated configuration layers
+- BuildKit caches pip and npm downloads
+- Source revisions are immutable, so cached layers cannot silently change to a different Odoo release
+- Project addons and module-specific dependencies remain outside the image and do not require an image rebuild
+
+New environments use Compose-scoped images, networks, and volumes so projects and branches cannot share databases accidentally. Existing state files retain their legacy volume names when regenerated to avoid silently abandoning existing data.
 
 Module-specific Python packages are installed into a persistent runtime volume at
 `/opt/odoo-extra-python`, which is added to `PYTHONPATH`. This avoids rebuilding
@@ -714,6 +728,10 @@ are synchronized with `odooctl docker deps sync` or automatically by
 - git, vim, htop (development tools)
 - debugpy (remote debugging)
 - ipython (Odoo shell)
+
+### Enterprise Source
+
+Enterprise builds use the same Odoo version branch as Community and record both resolved commit SHAs. Authentication is provided only during the Docker build through an SSH agent, SSH-key secret, or GitHub token secret. Credentials are not copied into the image.
 
 ### Vendor Directory
 

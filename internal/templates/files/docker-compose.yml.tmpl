@@ -1,8 +1,13 @@
-name: {{.VersionSuffix}}-{{.ProjectName}}
+name: {{.EnvironmentName}}
 x-odoo-common: &odoo-common
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      BASE_IMAGE: {{.BaseImage}}
+      ODOO_VERSION: {{.OdooVersion}}
+      ODOO_COMMIT: {{.OdooCommit}}
+      ENTERPRISE_COMMIT: {{.EnterpriseCommit}}
 {{- if .Enterprise}}
 {{- if .EnterpriseGitHubToken}}
     secrets:
@@ -15,8 +20,7 @@ x-odoo-common: &odoo-common
       - default
 {{- end}}
 {{- end}}
-  image: odoo-dev:{{.OdooVersion}}{{if .Enterprise}}-enterprise{{end}}
-
+  image: odooctl-{{.EnvironmentName}}:{{.OdooVersion}}
   depends_on:
     db:
       condition: service_healthy
@@ -33,52 +37,47 @@ x-odoo-common: &odoo-common
   volumes:
     - {{.ProjectRoot}}:/mnt/extra-addons
     - ./odoo.conf:/etc/odoo/odoo.conf:ro
-    - odoo-filestore-{{.VersionSuffix}}:/var/lib/odoo/filestore
-    - odoo-sessions-{{.VersionSuffix}}:/var/lib/odoo/.local/share/Odoo/sessions
-    - odoo-pydeps-{{.VersionSuffix}}:/opt/odoo-extra-python
+    - odoo-filestore:/var/lib/odoo/filestore
+    - odoo-sessions:/var/lib/odoo/.local/share/Odoo/sessions
+    - odoo-pydeps:/opt/odoo-extra-python
 {{- if .BrowserEnabled}}
     - ./browser-artifacts:/browser-artifacts
 {{- end}}
 {{- range $i, $path := .AddonsPaths}}
     - {{$path}}:/mnt/custom-addons-{{$i}}:ro
 {{- end}}
-{{- if .Enterprise}}
-    # Enterprise modules are built into the Docker image at /mnt/enterprise
-{{- end}}
   networks:
-    - odoo-network-{{.VersionSuffix}}
+    - odoo-network
 
 services:
   db:
     image: postgres:15
-    container_name: odoo-db-{{.VersionSuffix}}-{{.ProjectName}}
     environment:
       POSTGRES_DB: {{.DBName}}
       POSTGRES_USER: odoo
       POSTGRES_PASSWORD: odoo
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
-      - odoo-postgres-data-{{.VersionSuffix}}:/var/lib/postgresql/data/pgdata
+      - postgres-data:/var/lib/postgresql/data/pgdata
     networks:
-      - odoo-network-{{.VersionSuffix}}
+      - odoo-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U odoo -d {{.DBName}}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 5s
 
   odoo-init:
     <<: *odoo-common
-    container_name: odoo-init-{{.VersionSuffix}}-{{.ProjectName}}
     profiles:
       - init
     restart: "no"
-    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if .WithoutDemo}}, "--without-demo=all"{{end}}, "--stop-after-init"]
+    command: ["-c", "/etc/odoo/odoo.conf", "-d", "{{.DBName}}", "-i", "{{.InitModules}}"{{if .InitDemoFlag}}, "{{.InitDemoFlag}}"{{end}}, "--stop-after-init"]
 
   odoo-update:
     <<: *odoo-common
-    container_name: odoo-update-{{.VersionSuffix}}-{{.ProjectName}}
     profiles:
       - update
     restart: "no"
@@ -86,41 +85,49 @@ services:
 
   odoo:
     <<: *odoo-common
-    container_name: odoo-app-{{.VersionSuffix}}-{{.ProjectName}}
-    restart: "no"
     ports:
       - "{{.Ports.Odoo}}:8069"
       - "{{.Ports.Debug}}:5678"
+    restart: unless-stopped
+    stop_grace_period: 30s
     command: ["-c", "/etc/odoo/odoo.conf"]
 
   mailhog:
-    image: mailhog/mailhog:latest
-    container_name: odoo-mailhog-{{.VersionSuffix}}-{{.ProjectName}}
+    image: mailhog/mailhog:v1.0.1
     networks:
-      - odoo-network-{{.VersionSuffix}}
+      - odoo-network
     restart: unless-stopped
     ports:
       - "{{.Ports.Mailhog}}:8025"
       - "{{.Ports.SMTP}}:1025"
 
 networks:
-  odoo-network-{{.VersionSuffix}}:
-    driver: bridge
+  odoo-network:
 
 volumes:
-  odoo-postgres-data-{{.VersionSuffix}}:
-  odoo-filestore-{{.VersionSuffix}}:
-  odoo-sessions-{{.VersionSuffix}}:
-  odoo-pydeps-{{.VersionSuffix}}:
+  postgres-data:
+{{if .LegacyResources}}
+    name: odoo-postgres-data-{{.VersionSuffix}}
+{{end}}
+  odoo-filestore:
+{{if .LegacyResources}}
+    name: odoo-filestore-{{.VersionSuffix}}
+{{end}}
+  odoo-sessions:
+{{if .LegacyResources}}
+    name: odoo-sessions-{{.VersionSuffix}}
+{{end}}
+  odoo-pydeps:
+{{if .LegacyResources}}
+    name: odoo-pydeps-{{.VersionSuffix}}
+{{end}}
 {{- if .Enterprise}}
-{{- if .EnterpriseGitHubToken}}
 
 secrets:
+{{- if .EnterpriseGitHubToken}}
   github_token:
     environment: GITHUB_TOKEN
 {{- else if .EnterpriseSSHKeyPath}}
-
-secrets:
   enterprise_ssh_key:
     file: {{.EnterpriseSSHKeyPath}}
 {{- end}}
