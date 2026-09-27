@@ -247,9 +247,7 @@ func pythonDepsHash(packages []string) string {
 }
 
 func discoverStatePythonDeps(state *config.State, modules []string) map[string][]string {
-	dirs := []string{state.ProjectRoot}
-	dirs = append(dirs, state.AddonsPaths...)
-	return pydeps.DiscoverPythonDepsForModules(dirs, cleanStrings(modules))
+	return pydeps.DiscoverPythonDepsForModules(state.AllAddonsPaths(), cleanStrings(modules))
 }
 
 func printDiscoveredPythonDeps(discovered map[string][]string, existing []string) {

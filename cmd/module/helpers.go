@@ -32,9 +32,7 @@ func moduleScanDirs() ([]string, *config.State, error) {
 	}
 	state, err := config.LoadFromDir(cwd)
 	if err == nil {
-		dirs := []string{state.ProjectRoot}
-		dirs = append(dirs, state.AddonsPaths...)
-		return dirs, state, nil
+		return state.AllAddonsPaths(), state, nil
 	}
 	ctx := project.Detect(cwd)
 	return []string{ctx.Root}, nil, nil

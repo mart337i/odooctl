@@ -56,6 +56,22 @@ func runRun(cmd *cobra.Command, args []string) error {
 	green := color.New(color.FgGreen).SprintFunc()
 	cyan := color.New(color.FgCyan).SprintFunc()
 	yellow := color.New(color.FgYellow).SprintFunc()
+	reposChanged, err := ensureManagedRepositories(state)
+	if err != nil {
+		return err
+	}
+	if reposChanged {
+		if err := templates.Render(state); err != nil {
+			return fmt.Errorf("failed to regenerate templates: %w", err)
+		}
+		if err := state.Save(); err != nil {
+			return fmt.Errorf("failed to save state: %w", err)
+		}
+		if err := config.SaveProjectLink(state); err != nil {
+			return fmt.Errorf("failed to save project link: %w", err)
+		}
+		fmt.Printf("%s Prepared managed addon repositories\n", green("✓"))
+	}
 
 	// Check for port conflicts
 	available, conflicting := state.Ports.CheckPortsAvailable()

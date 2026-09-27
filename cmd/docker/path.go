@@ -14,16 +14,19 @@ import (
 var flagPathJSON bool
 
 type pathReport struct {
-	Location     string       `json:"location"`
-	Project      string       `json:"project"`
-	Environment  string       `json:"environment"`
-	OdooVersion  string       `json:"odoo_version"`
-	Ports        config.Ports `json:"ports"`
-	Enterprise   bool         `json:"enterprise"`
-	FilesReady   bool         `json:"files_ready"`
-	FilesPresent []string     `json:"files_present"`
-	FilesMissing []string     `json:"files_missing"`
-	AddonsPaths  []string     `json:"addons_paths"`
+	Location           string                     `json:"location"`
+	Project            string                     `json:"project"`
+	Environment        string                     `json:"environment"`
+	OdooVersion        string                     `json:"odoo_version"`
+	Ports              config.Ports               `json:"ports"`
+	Enterprise         bool                       `json:"enterprise"`
+	FilesReady         bool                       `json:"files_ready"`
+	FilesPresent       []string                   `json:"files_present"`
+	FilesMissing       []string                   `json:"files_missing"`
+	Presets            []string                   `json:"presets,omitempty"`
+	Repositories       []config.ManagedRepository `json:"repositories,omitempty"`
+	AddonsPaths        []string                   `json:"addons_paths"`
+	ManagedAddonsPaths []string                   `json:"managed_addons_paths,omitempty"`
 }
 
 var pathCmd = &cobra.Command{
@@ -73,9 +76,18 @@ func runPath(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show addons paths if configured
-	if len(state.AddonsPaths) > 0 {
+	if len(state.Presets) > 0 {
+		fmt.Printf("\n%s Presets:\n", cyan("🧩"))
+		for i, preset := range state.Presets {
+			fmt.Printf("   %d. %s\n", i+1, preset)
+		}
+	}
+
+	allAddonsPaths := append([]string{}, report.ManagedAddonsPaths...)
+	allAddonsPaths = append(allAddonsPaths, report.AddonsPaths...)
+	if len(allAddonsPaths) > 0 {
 		fmt.Printf("\n%s Addons paths:\n", cyan("📦"))
-		for i, path := range state.AddonsPaths {
+		for i, path := range allAddonsPaths {
 			fmt.Printf("   %d. %s\n", i+1, path)
 		}
 	}
@@ -85,13 +97,16 @@ func runPath(cmd *cobra.Command, args []string) error {
 
 func dockerPathReport(state *config.State, dir string) pathReport {
 	report := pathReport{
-		Location:    dir,
-		Project:     state.ProjectName,
-		Environment: state.Branch,
-		OdooVersion: state.OdooVersion,
-		Ports:       state.Ports,
-		Enterprise:  state.Enterprise,
-		AddonsPaths: append([]string{}, state.AddonsPaths...),
+		Location:           dir,
+		Project:            state.ProjectName,
+		Environment:        state.Branch,
+		OdooVersion:        state.OdooVersion,
+		Ports:              state.Ports,
+		Enterprise:         state.Enterprise,
+		Presets:            append([]string{}, state.Presets...),
+		Repositories:       append([]config.ManagedRepository{}, state.Repositories...),
+		AddonsPaths:        append([]string{}, state.AddonsPaths...),
+		ManagedAddonsPaths: state.ManagedAddonsPaths(),
 	}
 	for _, file := range []string{"docker-compose.yml", "Dockerfile", "odoo.conf"} {
 		if _, err := os.Stat(filepath.Join(dir, file)); os.IsNotExist(err) {

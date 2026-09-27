@@ -49,13 +49,16 @@ type ProjectInfo struct {
 }
 
 type EnvironmentInfo struct {
-	Dir            string       `json:"dir"`
-	StateFile      string       `json:"state_file"`
-	Ports          config.Ports `json:"ports"`
-	FilesPresent   []string     `json:"files_present"`
-	FilesMissing   []string     `json:"files_missing"`
-	AddonsPaths    []string     `json:"addons_paths"`
-	ConfiguredMods []string     `json:"configured_modules"`
+	Dir                string                     `json:"dir"`
+	StateFile          string                     `json:"state_file"`
+	Ports              config.Ports               `json:"ports"`
+	FilesPresent       []string                   `json:"files_present"`
+	FilesMissing       []string                   `json:"files_missing"`
+	Presets            []string                   `json:"presets,omitempty"`
+	Repositories       []config.ManagedRepository `json:"repositories,omitempty"`
+	AddonsPaths        []string                   `json:"addons_paths"`
+	ManagedAddonsPaths []string                   `json:"managed_addons_paths,omitempty"`
+	ConfiguredMods     []string                   `json:"configured_modules"`
 }
 
 type ServiceStatus struct {
@@ -204,11 +207,14 @@ func externalPortConflicts(ports config.Ports, services []ServiceStatus, conflic
 
 func collectEnvironment(state *config.State, envDir string) *EnvironmentInfo {
 	info := &EnvironmentInfo{
-		Dir:            envDir,
-		StateFile:      filepath.Join(envDir, config.StateFileName),
-		Ports:          state.Ports,
-		AddonsPaths:    append([]string{}, state.AddonsPaths...),
-		ConfiguredMods: append([]string{}, state.Modules...),
+		Dir:                envDir,
+		StateFile:          filepath.Join(envDir, config.StateFileName),
+		Ports:              state.Ports,
+		Presets:            append([]string{}, state.Presets...),
+		Repositories:       append([]config.ManagedRepository{}, state.Repositories...),
+		AddonsPaths:        append([]string{}, state.AddonsPaths...),
+		ManagedAddonsPaths: state.ManagedAddonsPaths(),
+		ConfiguredMods:     append([]string{}, state.Modules...),
 	}
 	for _, name := range []string{config.StateFileName, "docker-compose.yml", "Dockerfile", "odoo.conf"} {
 		path := filepath.Join(envDir, name)
@@ -237,7 +243,7 @@ func (r *Report) collectDocker(state *config.State) {
 		r.addDockerError("docker_compose", "Docker Compose", err)
 	} else {
 		r.Docker.ComposeOK = true
-		r.add(Check{ID: "docker_compose", Name: "Docker Compose", Status: StatusOK, Message: "Docker Compose plugin is available"})
+		r.add(Check{ID: "docker_compose", Name: "Docker Compose", Status: StatusOK, Message: "Docker Compose is available"})
 		if err := dockerlib.CheckComposeConfig(state); err != nil {
 			composeOK = false
 			r.addDockerError("docker_compose_config", "Docker Compose configuration", err)
@@ -311,9 +317,7 @@ func (r *Report) addDockerError(id, name string, err error) {
 }
 
 func collectPythonDeps(state *config.State) *PythonDepsInfo {
-	dirs := []string{state.ProjectRoot}
-	dirs = append(dirs, state.AddonsPaths...)
-	discovered := pydeps.DiscoverPythonDepsForModules(dirs, nil)
+	discovered := pydeps.DiscoverPythonDepsForModules(state.AllAddonsPaths(), nil)
 	missing := pydeps.MissingPythonDeps(discovered, state.PipPackages)
 	return &PythonDepsInfo{
 		Configured: append([]string{}, state.PipPackages...),
@@ -371,8 +375,7 @@ func pythonDepsHash(packages []string) string {
 }
 
 func FindModuleManifests(state *config.State, targets []string) ([]modlib.ManifestInfo, error) {
-	dirs := []string{state.ProjectRoot}
-	dirs = append(dirs, state.AddonsPaths...)
+	dirs := state.AllAddonsPaths()
 	targetSet := make(map[string]bool)
 	for _, target := range targets {
 		if target = strings.TrimSpace(target); target != "" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
@@ -32,6 +33,12 @@ type Data struct {
 	EnterpriseGitHubToken  string
 	EnterpriseSSHKeyPath   string
 	AddonsPaths            []string
+	ManagedRepositories    []RepositoryMount
+	ServerWideModules      string
+	Workers                string
+	MaxCronThreads         string
+	ConfigOptions          []ConfigOption
+	Environment            []EnvironmentVariable
 	Ports                  config.Ports
 	BrowserEnabled         bool
 	BrowserProvider        string
@@ -42,6 +49,22 @@ type Data struct {
 	InitDemoFlag           string
 	LegacyResources        bool
 	UseAptOdooDependencies bool
+}
+
+type RepositoryMount struct {
+	Name       string
+	MountPath  string
+	AddonsPath bool
+}
+
+type ConfigOption struct {
+	Key   string
+	Value string
+}
+
+type EnvironmentVariable struct {
+	Key   string
+	Value string
 }
 
 // NewData creates template data from state
@@ -76,6 +99,10 @@ func NewData(state *config.State) Data {
 
 	modules := []string{"base", "web"}
 	modules = append(modules, state.Modules...)
+	serverWideModules := []string{"base", "web"}
+	serverWideModules = append(serverWideModules, state.ServerWideModules...)
+	serverWideModules = uniqueStrings(serverWideModules)
+	configOptions := configOptions(state.OdooConfig, "workers", "max_cron_threads", "server_wide_modules")
 
 	return Data{
 		ProjectName:            state.ProjectName,
@@ -93,6 +120,12 @@ func NewData(state *config.State) Data {
 		EnterpriseGitHubToken:  state.EnterpriseGitHubToken,
 		EnterpriseSSHKeyPath:   state.EnterpriseSSHKeyPath,
 		AddonsPaths:            state.AddonsPaths,
+		ManagedRepositories:    repositoryMounts(state.Repositories),
+		ServerWideModules:      strings.Join(serverWideModules, ","),
+		Workers:                configValue(state.OdooConfig, "workers", "0"),
+		MaxCronThreads:         configValue(state.OdooConfig, "max_cron_threads", "0"),
+		ConfigOptions:          configOptions,
+		Environment:            environmentVariables(state.Environment),
 		Ports:                  state.Ports,
 		BrowserEnabled:         state.BrowserEnabled,
 		BrowserProvider:        state.BrowserProvider,
@@ -104,6 +137,85 @@ func NewData(state *config.State) Data {
 		LegacyResources:        state.DockerSchemaVersion == 1,
 		UseAptOdooDependencies: state.OdooVersion == "12.0" || state.OdooVersion == "13.0",
 	}
+}
+
+func repositoryMounts(repositories []config.ManagedRepository) []RepositoryMount {
+	mounts := make([]RepositoryMount, 0, len(repositories))
+	for _, repo := range repositories {
+		name := config.SanitizeName(repo.Name)
+		mounts = append(mounts, RepositoryMount{
+			Name:       name,
+			MountPath:  "/mnt/repositories/" + name,
+			AddonsPath: repo.AddonsPath,
+		})
+	}
+	return mounts
+}
+
+func configValue(values map[string]string, key, fallback string) string {
+	if values == nil {
+		return fallback
+	}
+	if value := strings.TrimSpace(values[key]); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func configOptions(values map[string]string, exclude ...string) []ConfigOption {
+	if len(values) == 0 {
+		return nil
+	}
+	excluded := make(map[string]bool, len(exclude))
+	for _, key := range exclude {
+		excluded[key] = true
+	}
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		if excluded[key] || strings.TrimSpace(value) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	options := make([]ConfigOption, 0, len(keys))
+	for _, key := range keys {
+		options = append(options, ConfigOption{Key: key, Value: values[key]})
+	}
+	return options
+}
+
+func environmentVariables(values map[string]string) []EnvironmentVariable {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key, value := range values {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	variables := make([]EnvironmentVariable, 0, len(keys))
+	for _, key := range keys {
+		variables = append(variables, EnvironmentVariable{Key: key, Value: values[key]})
+	}
+	return variables
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	unique := []string{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		unique = append(unique, value)
+	}
+	return unique
 }
 
 // getTemplatePath returns the version-specific template path if it exists,

@@ -201,7 +201,7 @@ func formatComposeCheckError(output string, err error) error {
 		Code:        ErrorCodeDockerComposeUnavailable,
 		Category:    "cli",
 		Retryable:   false,
-		Summary:     "Docker Compose plugin is not available",
+		Summary:     "Docker Compose is not available",
 		Detail:      detail,
 		Remediation: remediationFor(ErrorCodeDockerComposeUnavailable, DetectHostPlatform()),
 		Cause:       err,
@@ -254,7 +254,7 @@ func remediationFor(code ErrorCode, platform HostPlatform) []string {
 	case ErrorCodeDockerContextUnavailable:
 		return []string{"Run 'docker context ls' and select a running context with 'docker context use <name>'"}
 	case ErrorCodeDockerComposeUnavailable:
-		return []string{"Install the Docker Compose v2 plugin and verify it with 'docker compose version'"}
+		return []string{"Install the Docker Compose v2 plugin or standalone docker-compose, then verify it with 'docker compose version' or 'docker-compose version'"}
 	case ErrorCodeDockerComposeConfigInvalid:
 		return []string{"Inspect the generated docker-compose.yml and rerun 'odooctl docker create' if it is stale"}
 	case ErrorCodeDockerBindMountDenied:

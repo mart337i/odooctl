@@ -13,6 +13,7 @@ import (
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/odoo"
 	"github.com/mart337i/odooctl/internal/output"
+	"github.com/mart337i/odooctl/internal/presets"
 	"github.com/mart337i/odooctl/internal/project"
 	"github.com/mart337i/odooctl/internal/repository"
 	"github.com/mart337i/odooctl/internal/templates"
@@ -28,28 +29,31 @@ var (
 	flagWithoutDemo     bool
 	flagPip             string
 	flagAddonsPaths     []string
+	flagPresets         []string
 	flagAutoDiscoverPip bool
 	flagCreateJSON      bool
 	flagCreateBrowser   bool
 )
 
 type createReport struct {
-	Project          string       `json:"project"`
-	Environment      string       `json:"environment"`
-	OdooVersion      string       `json:"odoo_version"`
-	OdooCommit       string       `json:"odoo_commit"`
-	EnterpriseCommit string       `json:"enterprise_commit,omitempty"`
-	Database         string       `json:"database"`
-	EnvDir           string       `json:"env_dir"`
-	Ports            config.Ports `json:"ports"`
-	Modules          []string     `json:"modules"`
-	AddonsPaths      []string     `json:"addons_paths"`
-	PipPackages      []string     `json:"pip_packages"`
-	Enterprise       bool         `json:"enterprise"`
-	AuthMethod       string       `json:"auth_method,omitempty"`
-	Browser          bool         `json:"browser"`
-	BrowserProvider  string       `json:"browser_provider,omitempty"`
-	NextSteps        []string     `json:"next_steps"`
+	Project          string                     `json:"project"`
+	Environment      string                     `json:"environment"`
+	OdooVersion      string                     `json:"odoo_version"`
+	OdooCommit       string                     `json:"odoo_commit"`
+	EnterpriseCommit string                     `json:"enterprise_commit,omitempty"`
+	Database         string                     `json:"database"`
+	EnvDir           string                     `json:"env_dir"`
+	Ports            config.Ports               `json:"ports"`
+	Modules          []string                   `json:"modules"`
+	AddonsPaths      []string                   `json:"addons_paths"`
+	PipPackages      []string                   `json:"pip_packages"`
+	Presets          []string                   `json:"presets,omitempty"`
+	Repositories     []config.ManagedRepository `json:"repositories,omitempty"`
+	Enterprise       bool                       `json:"enterprise"`
+	AuthMethod       string                     `json:"auth_method,omitempty"`
+	Browser          bool                       `json:"browser"`
+	BrowserProvider  string                     `json:"browser_provider,omitempty"`
+	NextSteps        []string                   `json:"next_steps"`
 }
 
 var createCmd = &cobra.Command{
@@ -67,6 +71,7 @@ func init() {
 	createCmd.Flags().BoolVar(&flagWithoutDemo, "without-demo", false, "Initialize without demo data")
 	createCmd.Flags().StringVarP(&flagPip, "pip", "p", "", "Extra pip packages (comma-separated or path to requirements.txt)")
 	createCmd.Flags().StringArrayVarP(&flagAddonsPaths, "addons-path", "a", nil, "Additional addons directories (can specify multiple times)")
+	createCmd.Flags().StringArrayVar(&flagPresets, "preset", nil, "Apply an environment preset (queue-job, migration; repeat or comma-separate)")
 	createCmd.Flags().BoolVar(&flagAutoDiscoverPip, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests during create")
 	createCmd.Flags().BoolVar(&flagCreateBrowser, "browser", false, "Include Playwright Chromium for AI inspection and Odoo browser tests (Odoo 15.0+)")
 	createCmd.Flags().BoolVar(&flagCreateJSON, "json", false, "Print JSON output")
@@ -148,14 +153,6 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s Added addons path: %s\n", color.CyanString("📁"), absPath)
 	}
 
-	// Auto-discover Python dependencies from manifests
-	if flagAutoDiscoverPip {
-		scanDirs := []string{ctx.Root}
-		scanDirs = append(scanDirs, addonsPaths...)
-		discoveredPkgs := deps.DiscoverPythonDeps(scanDirs, pipPkgs)
-		pipPkgs = append(pipPkgs, discoveredPkgs...)
-	}
-
 	// Handle enterprise authentication if needed
 	var enterpriseToken, enterpriseSSHKeyPath string
 	if flagEnterprise {
@@ -188,6 +185,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	presetExpansion, err := presets.Expand(flagPresets, ctx.OdooVersion)
+	if err != nil {
+		return err
+	}
+
 	// Build state
 	state := &config.State{
 		ProjectName:           ctx.Name,
@@ -209,6 +211,17 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		AddonsPaths:           addonsPaths,
 		Ports:                 config.CalculatePorts(ctx.OdooVersion),
 		CreatedAt:             time.Now(),
+	}
+	applyPresetExpansion(state, presetExpansion)
+	if _, err := ensureManagedRepositories(state); err != nil {
+		return err
+	}
+
+	// Auto-discover Python dependencies from manifests after preset repositories
+	// have been checked out so managed addon paths are available to scan.
+	if flagAutoDiscoverPip {
+		discoveredPkgs := deps.DiscoverPythonDeps(state.AllAddonsPaths(), state.PipPackages)
+		state.PipPackages = append(state.PipPackages, discoveredPkgs...)
 	}
 
 	// Render templates
@@ -464,6 +477,12 @@ func printCreateSummary(state *config.State) {
 	if len(state.AddonsPaths) > 0 {
 		fmt.Printf("  Addons:      %d custom path(s)\n", len(state.AddonsPaths))
 	}
+	if len(state.Presets) > 0 {
+		fmt.Printf("  Presets:     %s\n", cyan(strings.Join(state.Presets, ", ")))
+	}
+	if len(state.Repositories) > 0 {
+		fmt.Printf("  Repos:       %d managed checkout(s)\n", len(state.Repositories))
+	}
 
 	fmt.Println()
 	fmt.Println("Next steps:")
@@ -494,6 +513,8 @@ func buildCreateReport(state *config.State) createReport {
 		Modules:          append([]string{}, state.Modules...),
 		AddonsPaths:      append([]string{}, state.AddonsPaths...),
 		PipPackages:      append([]string{}, state.PipPackages...),
+		Presets:          append([]string{}, state.Presets...),
+		Repositories:     append([]config.ManagedRepository{}, state.Repositories...),
 		Enterprise:       state.Enterprise,
 		AuthMethod:       authMethod,
 		Browser:          state.BrowserEnabled,

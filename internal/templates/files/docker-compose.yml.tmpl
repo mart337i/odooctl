@@ -30,6 +30,9 @@ x-odoo-common: &odoo-common
     USER: odoo
     PASSWORD: odoo
     PYTHONPATH: /opt/odoo-extra-python
+{{- range .Environment}}
+    {{.Key}}: {{.Value}}
+{{- end}}
 {{- if .BrowserEnabled}}
     PLAYWRIGHT_BROWSERS_PATH: /opt/ms-playwright
     CHROME_BIN: /usr/local/bin/chromium
@@ -40,6 +43,9 @@ x-odoo-common: &odoo-common
     - odoo-filestore:/var/lib/odoo/filestore
     - odoo-sessions:/var/lib/odoo/.local/share/Odoo/sessions
     - odoo-pydeps:/opt/odoo-extra-python
+{{- range .ManagedRepositories}}
+    - ./repositories/{{.Name}}:{{.MountPath}}:ro
+{{- end}}
 {{- if .BrowserEnabled}}
     - ./browser-artifacts:/browser-artifacts
 {{- end}}

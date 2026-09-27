@@ -81,6 +81,14 @@ type Ports struct {
 	Debug   int `json:"debug"`
 }
 
+type ManagedRepository struct {
+	Name       string `json:"name"`
+	URL        string `json:"url"`
+	Branch     string `json:"branch"`
+	Commit     string `json:"commit,omitempty"`
+	AddonsPath bool   `json:"addons_path,omitempty"`
+}
+
 type ProjectLink struct {
 	ProjectRoot string    `json:"project_root"`
 	EnvDir      string    `json:"env_dir"`
@@ -90,29 +98,34 @@ type ProjectLink struct {
 }
 
 type State struct {
-	ProjectName           string     `json:"project_name"`
-	OdooVersion           string     `json:"odoo_version"`
-	OdooCommit            string     `json:"odoo_commit,omitempty"`
-	EnterpriseCommit      string     `json:"enterprise_commit,omitempty"`
-	DockerSchemaVersion   int        `json:"docker_schema_version,omitempty"`
-	Branch                string     `json:"branch"`
-	IsGitRepo             bool       `json:"is_git_repo"`
-	ProjectRoot           string     `json:"project_root"`
-	Modules               []string   `json:"modules"`
-	Enterprise            bool       `json:"enterprise"`
-	EnterpriseGitHubToken string     `json:"enterprise_github_token,omitempty"` // GitHub token for enterprise repo access
-	EnterpriseSSHKeyPath  string     `json:"enterprise_ssh_key_path,omitempty"` // Path to SSH private key for enterprise repo
-	WithoutDemo           bool       `json:"without_demo"`
-	PipPackages           []string   `json:"pip_packages"`
-	PythonDepsHash        string     `json:"python_deps_hash,omitempty"`
-	PythonDepsSyncedAt    *time.Time `json:"python_deps_synced_at,omitempty"`
-	BrowserEnabled        bool       `json:"browser_enabled,omitempty"`
-	BrowserProvider       string     `json:"browser_provider,omitempty"`
-	AddonsPaths           []string   `json:"addons_paths"`
-	Ports                 Ports      `json:"ports"`
-	CreatedAt             time.Time  `json:"created_at"`
-	InitializedAt         *time.Time `json:"initialized_at,omitempty"` // When database was first initialized with -i
-	BuiltAt               *time.Time `json:"built_at,omitempty"`       // When containers were first built with --build
+	ProjectName           string              `json:"project_name"`
+	OdooVersion           string              `json:"odoo_version"`
+	OdooCommit            string              `json:"odoo_commit,omitempty"`
+	EnterpriseCommit      string              `json:"enterprise_commit,omitempty"`
+	DockerSchemaVersion   int                 `json:"docker_schema_version,omitempty"`
+	Branch                string              `json:"branch"`
+	IsGitRepo             bool                `json:"is_git_repo"`
+	ProjectRoot           string              `json:"project_root"`
+	Modules               []string            `json:"modules"`
+	Enterprise            bool                `json:"enterprise"`
+	EnterpriseGitHubToken string              `json:"enterprise_github_token,omitempty"` // GitHub token for enterprise repo access
+	EnterpriseSSHKeyPath  string              `json:"enterprise_ssh_key_path,omitempty"` // Path to SSH private key for enterprise repo
+	WithoutDemo           bool                `json:"without_demo"`
+	PipPackages           []string            `json:"pip_packages"`
+	PythonDepsHash        string              `json:"python_deps_hash,omitempty"`
+	PythonDepsSyncedAt    *time.Time          `json:"python_deps_synced_at,omitempty"`
+	Presets               []string            `json:"presets,omitempty"`
+	Repositories          []ManagedRepository `json:"repositories,omitempty"`
+	ServerWideModules     []string            `json:"server_wide_modules,omitempty"`
+	OdooConfig            map[string]string   `json:"odoo_config,omitempty"`
+	Environment           map[string]string   `json:"environment,omitempty"`
+	BrowserEnabled        bool                `json:"browser_enabled,omitempty"`
+	BrowserProvider       string              `json:"browser_provider,omitempty"`
+	AddonsPaths           []string            `json:"addons_paths"`
+	Ports                 Ports               `json:"ports"`
+	CreatedAt             time.Time           `json:"created_at"`
+	InitializedAt         *time.Time          `json:"initialized_at,omitempty"` // When database was first initialized with -i
+	BuiltAt               *time.Time          `json:"built_at,omitempty"`       // When containers were first built with --build
 }
 
 // ConfigDir returns ~/.odooctl
@@ -436,6 +449,44 @@ func normalizeState(state *State) {
 		// mapping while regenerating them so data is not silently abandoned.
 		state.DockerSchemaVersion = 1
 	}
+}
+
+func ManagedRepositoriesDir(projectName, branch string) (string, error) {
+	envDir, err := EnvironmentDir(projectName, branch)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(envDir, "repositories"), nil
+}
+
+func ManagedRepositoryDir(projectName, branch, name string) (string, error) {
+	reposDir, err := ManagedRepositoriesDir(projectName, branch)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(reposDir, SanitizeName(name)), nil
+}
+
+func (s *State) ManagedAddonsPaths() []string {
+	paths := []string{}
+	for _, repo := range s.Repositories {
+		if !repo.AddonsPath {
+			continue
+		}
+		path, err := ManagedRepositoryDir(s.ProjectName, s.Branch, repo.Name)
+		if err != nil {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	return paths
+}
+
+func (s *State) AllAddonsPaths() []string {
+	paths := []string{s.ProjectRoot}
+	paths = append(paths, s.ManagedAddonsPaths()...)
+	paths = append(paths, s.AddonsPaths...)
+	return paths
 }
 
 func parentDirs(dir string) []string {

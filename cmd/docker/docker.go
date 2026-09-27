@@ -32,4 +32,5 @@ func init() {
 	Cmd.AddCommand(debugInfoCmd)
 	Cmd.AddCommand(dumpCmd)
 	Cmd.AddCommand(depsCmd)
+	Cmd.AddCommand(presetCmd)
 }

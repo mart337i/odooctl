@@ -8,13 +8,15 @@ http_port = 8069
 admin_passwd = admin
 data_dir = /var/lib/odoo
 
-addons_path = /opt/odoo-src/addons{{if .Enterprise}},/opt/odoo-enterprise{{end}},/mnt/extra-addons{{range $i, $path := .AddonsPaths}},/mnt/custom-addons-{{$i}}{{end}}
+addons_path = /opt/odoo-src/addons{{if .Enterprise}},/opt/odoo-enterprise{{end}},/mnt/extra-addons{{range .ManagedRepositories}}{{if .AddonsPath}},{{.MountPath}}{{end}}{{end}}{{range $i, $path := .AddonsPaths}},/mnt/custom-addons-{{$i}}{{end}}
 
 dev_mode = all
 log_level = info
 log_handler = :INFO
-workers = 0
-max_cron_threads = 0
+workers = {{.Workers}}
+max_cron_threads = {{.MaxCronThreads}}
+{{range .ConfigOptions}}{{.Key}} = {{.Value}}
+{{end}}
 
 limit_memory_hard = 2684354560
 limit_memory_soft = 2147483648
@@ -26,7 +28,7 @@ smtp_server = mailhog
 smtp_port = 1025
 email_from = noreply@localhost
 
-server_wide_modules = base,web
+server_wide_modules = {{.ServerWideModules}}
 list_db = True
 proxy_mode = False
 dbfilter = ^{{.DBName}}$

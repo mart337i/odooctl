@@ -19,11 +19,11 @@ func CheckDaemon() error {
 	return formatDaemonCheckError(strings.TrimSpace(string(output)), err)
 }
 
-// CheckCompose verifies that the Docker Compose v2 plugin is installed.
+// CheckCompose verifies that Docker Compose is available. Prefer the v2 plugin
+// form, but support standalone docker-compose for older Linux installations.
 func CheckCompose() error {
-	cmd := exec.Command("docker", "compose", "version")
-	output, err := cmd.CombinedOutput()
-	return formatComposeCheckError(strings.TrimSpace(string(output)), err)
+	_, err := composeInvocation()
+	return err
 }
 
 // CheckComposeConfig validates the generated Compose file without starting containers.
@@ -85,13 +85,60 @@ func composeCommand(state *config.State, args ...string) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	invocation, err := composeInvocation()
+	if err != nil {
+		return nil, err
+	}
 
-	cmd := exec.Command("docker", append([]string{"compose"}, args...)...)
+	cmd := exec.Command(invocation.name, append(invocation.prefix, args...)...)
 	cmd.Dir = dir
 	if state.Enterprise && state.EnterpriseGitHubToken != "" {
 		cmd.Env = append(os.Environ(), fmt.Sprintf("GITHUB_TOKEN=%s", state.EnterpriseGitHubToken))
 	}
 	return cmd, nil
+}
+
+type composeCLI struct {
+	name   string
+	prefix []string
+}
+
+func composeInvocation() (composeCLI, error) {
+	plugin := composeCLI{name: "docker", prefix: []string{"compose"}}
+	if err := checkComposeInvocation(plugin); err == nil {
+		return plugin, nil
+	} else {
+		standalone := composeCLI{name: "docker-compose"}
+		if standaloneErr := checkComposeInvocation(standalone); standaloneErr == nil {
+			return standalone, nil
+		} else {
+			detail := strings.TrimSpace(err.Error() + "\n" + standaloneErr.Error())
+			return composeCLI{}, formatComposeCheckError(detail, standaloneErr)
+		}
+	}
+}
+
+func checkComposeInvocation(invocation composeCLI) error {
+	if err := runComposeProbe(invocation, "version"); err != nil {
+		return err
+	}
+	return runComposeProbe(invocation, "ls")
+}
+
+func runComposeProbe(invocation composeCLI, arg string) error {
+	cmd := exec.Command(invocation.name, append(invocation.prefix, "version")...)
+	if arg != "version" {
+		cmd = exec.Command(invocation.name, append(invocation.prefix, arg)...)
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(output))
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("%s %s: %s", strings.Join(append([]string{invocation.name}, invocation.prefix...), " "), arg, detail)
+	}
+	return nil
 }
 
 // IsRunning checks if containers are running

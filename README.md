@@ -179,6 +179,10 @@ odooctl docker deps sync
 
 # Add custom addons path
 odooctl docker reconfigure --add-addons-path ~/external-addons
+
+# Create with common opt-in tooling presets
+odooctl docker create --preset queue-job
+odooctl docker create --preset migration
 ```
 
 ### 6. Creating New Modules
@@ -484,6 +488,7 @@ odooctl browser trace /web --json
 | `odooctl docker stop` | Stop running containers |
 | `odooctl docker reset` | Remove containers, optionally volumes and files |
 | `odooctl docker reconfigure` | Add pip packages or addons paths |
+| `odooctl docker preset list` | List built-in Odoo/OCA environment presets |
 | `odooctl docker goto` | Navigate to environment directory |
 | `odooctl docker path` | Print environment directory path |
 | `odooctl docker edit` | Edit configuration files |
@@ -568,6 +573,35 @@ odooctl docker deps sync requests zeep
 # Clean the runtime dependency volume
 odooctl docker deps clean
 ```
+
+### Environment Presets
+
+Presets are opt-in bundles for common Odoo/OCA development tooling. They expand
+to explicit environment state: managed Git repositories with pinned commits,
+pip packages, init modules, config overrides, and environment variables.
+
+```bash
+# See available presets
+odooctl docker preset list
+
+# New environment with OCA queue_job configured
+odooctl docker create --preset queue-job
+
+# Add OpenUpgrade and migration tooling to an existing environment
+odooctl docker reconfigure --preset migration
+```
+
+Built-in presets:
+
+| Preset | Includes |
+|--------|----------|
+| `queue-job` | OCA `queue`, installs `queue_job`, loads it server-wide, sets worker/jobrunner defaults |
+| `migration` | OCA `OpenUpgrade`, Odoo `upgrade-util` checkout, and `openupgradelib` |
+
+Preset repositories are stored under the environment directory in
+`~/.odooctl/<project>/<environment>/repositories/` and mounted read-only into
+the Odoo container. The default environment remains minimal unless a preset is
+selected.
 
 You can still opt in during create or reconfigure:
 

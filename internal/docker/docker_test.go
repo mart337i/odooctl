@@ -3,6 +3,8 @@ package docker
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -115,5 +117,71 @@ func TestFormatCLIUnavailableError(t *testing.T) {
 	}
 	if diagnostic.Code != ErrorCodeDockerCLIUnavailable || diagnostic.Retryable {
 		t.Fatalf("unexpected CLI diagnostic: %#v", diagnostic)
+	}
+}
+
+func TestComposeInvocationPrefersDockerComposePlugin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "docker"), `#!/bin/sh
+if [ "$1" = "compose" ] && [ "$2" = "version" ]; then
+  printf 'Docker Compose version v2.0.0\n'
+  exit 0
+fi
+if [ "$1" = "compose" ] && [ "$2" = "ls" ]; then
+  exit 0
+fi
+exit 1
+`)
+	writeExecutable(t, filepath.Join(dir, "docker-compose"), `#!/bin/sh
+printf 'Docker Compose version standalone\n'
+exit 0
+`)
+	t.Setenv("PATH", dir)
+
+	invocation, err := composeInvocation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.name != "docker" || len(invocation.prefix) != 1 || invocation.prefix[0] != "compose" {
+		t.Fatalf("composeInvocation() = %#v, want docker compose plugin", invocation)
+	}
+}
+
+func TestComposeInvocationFallsBackToStandalone(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script test")
+	}
+	dir := t.TempDir()
+	writeExecutable(t, filepath.Join(dir, "docker"), `#!/bin/sh
+exit 1
+`)
+	writeExecutable(t, filepath.Join(dir, "docker-compose"), `#!/bin/sh
+if [ "$1" = "version" ]; then
+  printf 'Docker Compose version standalone\n'
+  exit 0
+fi
+if [ "$1" = "ls" ]; then
+  exit 0
+fi
+exit 1
+`)
+	t.Setenv("PATH", dir)
+
+	invocation, err := composeInvocation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.name != "docker-compose" || len(invocation.prefix) != 0 {
+		t.Fatalf("composeInvocation() = %#v, want standalone docker-compose", invocation)
+	}
+}
+
+func writeExecutable(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+		t.Fatal(err)
 	}
 }

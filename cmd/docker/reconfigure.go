@@ -10,6 +10,7 @@ import (
 	"github.com/mart337i/odooctl/internal/config"
 	"github.com/mart337i/odooctl/internal/deps"
 	"github.com/mart337i/odooctl/internal/docker"
+	"github.com/mart337i/odooctl/internal/presets"
 	"github.com/mart337i/odooctl/internal/templates"
 	"github.com/mart337i/odooctl/pkg/prompt"
 	"github.com/spf13/cobra"
@@ -18,6 +19,7 @@ import (
 var (
 	flagReconfigAddPip       string
 	flagReconfigAddPaths     []string
+	flagReconfigPresets      []string
 	flagReconfigAutoDiscover bool
 	flagReconfigRebuild      bool
 	flagReconfigStopFirst    bool
@@ -48,6 +50,9 @@ Examples:
   # Enable Playwright Chromium browser tooling
   odooctl docker reconfigure --browser --rebuild
 
+  # Apply a built-in preset
+  odooctl docker reconfigure --preset queue-job
+
   # Combine options
   odooctl docker reconfigure --add-pip requests --add-addons-path ~/addons --rebuild`,
 	RunE: runReconfigure,
@@ -56,6 +61,7 @@ Examples:
 func init() {
 	reconfigureCmd.Flags().StringVar(&flagReconfigAddPip, "add-pip", "", "Add pip packages (comma-separated or path to requirements.txt)")
 	reconfigureCmd.Flags().StringArrayVar(&flagReconfigAddPaths, "add-addons-path", nil, "Add additional addons directories (can specify multiple times)")
+	reconfigureCmd.Flags().StringArrayVar(&flagReconfigPresets, "preset", nil, "Apply an environment preset (queue-job, migration; repeat or comma-separate)")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigAutoDiscover, "auto-discover-deps", false, "Auto-discover Python dependencies from manifests")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigRebuild, "rebuild", true, "Rebuild container after reconfiguring")
 	reconfigureCmd.Flags().BoolVar(&flagReconfigStopFirst, "stop-first", true, "Stop containers before reconfiguring")
@@ -74,6 +80,10 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	}
 	if flagReconfigBrowser && !browser.SupportsVersion(state.OdooVersion) {
 		return fmt.Errorf("--browser is supported for Odoo 15.0+ environments; current version is %s", state.OdooVersion)
+	}
+	presetExpansion, err := presets.Expand(flagReconfigPresets, state.OdooVersion)
+	if err != nil {
+		return err
 	}
 
 	green := color.New(color.FgGreen).SprintFunc()
@@ -116,17 +126,6 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Auto-discover dependencies
-	if flagReconfigAutoDiscover {
-		scanDirs := []string{state.ProjectRoot}
-		scanDirs = append(scanDirs, newAddonsPaths...)
-		discoveredPkgs := deps.DiscoverPythonDeps(scanDirs, newPipPackages)
-		var added []string
-		newPipPackages, added = deps.MergePackages(newPipPackages, discoveredPkgs)
-		addedPipPackages = append(addedPipPackages, added...)
-	}
-
-	// Check if anything changed
 	newBrowserEnabled := state.BrowserEnabled
 	newBrowserProvider := state.BrowserProvider
 	if flagReconfigBrowser {
@@ -137,8 +136,28 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 		newBrowserEnabled = false
 		newBrowserProvider = ""
 	}
+	candidate := cloneState(state)
+	candidate.PipPackages = newPipPackages
+	candidate.AddonsPaths = newAddonsPaths
+	candidate.BrowserEnabled = newBrowserEnabled
+	candidate.BrowserProvider = newBrowserProvider
+	addedPresetPip, presetChanged := applyPresetExpansion(&candidate, presetExpansion)
+	addedPipPackages = append(addedPipPackages, addedPresetPip...)
+	reposChanged, err := ensureManagedRepositories(&candidate)
+	if err != nil {
+		return err
+	}
+	// Auto-discover dependencies after preset repositories are prepared so newly
+	// managed addon paths are included in the scan.
+	if flagReconfigAutoDiscover {
+		discoveredPkgs := deps.DiscoverPythonDeps(candidate.AllAddonsPaths(), candidate.PipPackages)
+		var added []string
+		candidate.PipPackages, added = deps.MergePackages(candidate.PipPackages, discoveredPkgs)
+		addedPipPackages = append(addedPipPackages, added...)
+	}
 
-	if len(newPipPackages) == len(state.PipPackages) && len(newAddonsPaths) == len(state.AddonsPaths) && newBrowserEnabled == state.BrowserEnabled && newBrowserProvider == state.BrowserProvider {
+	// Check if anything changed
+	if len(candidate.PipPackages) == len(state.PipPackages) && len(candidate.AddonsPaths) == len(state.AddonsPaths) && candidate.BrowserEnabled == state.BrowserEnabled && candidate.BrowserProvider == state.BrowserProvider && !presetChanged && !reposChanged {
 		fmt.Printf("%s No changes to apply\n", yellow("⚠️"))
 		return nil
 	}
@@ -152,10 +171,7 @@ func runReconfigure(cmd *cobra.Command, args []string) error {
 	}
 
 	// Update state
-	state.PipPackages = newPipPackages
-	state.AddonsPaths = newAddonsPaths
-	state.BrowserEnabled = newBrowserEnabled
-	state.BrowserProvider = newBrowserProvider
+	*state = candidate
 
 	// Regenerate files
 	if err := templates.Render(state); err != nil {

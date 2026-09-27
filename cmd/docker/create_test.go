@@ -11,3 +11,10 @@ func TestCreateDoesNotAutoDiscoverDepsByDefault(t *testing.T) {
 		t.Fatalf("auto-discover-deps default = %q, want false", flag.DefValue)
 	}
 }
+
+func TestCreateHasPresetFlag(t *testing.T) {
+	flag := createCmd.Flags().Lookup("preset")
+	if flag == nil {
+		t.Fatal("preset flag missing")
+	}
+}

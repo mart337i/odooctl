@@ -188,6 +188,72 @@ func TestRenderLegacyGeventConstraint(t *testing.T) {
 	}
 }
 
+func TestRenderManagedPresetRepositoryConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	state := &config.State{
+		ProjectName:         "preset-project",
+		OdooVersion:         "18.0",
+		OdooCommit:          strings.Repeat("d", 40),
+		DockerSchemaVersion: 2,
+		Branch:              "main",
+		ProjectRoot:         home,
+		Modules:             []string{"queue_job"},
+		Repositories: []config.ManagedRepository{
+			{Name: "oca-queue", URL: "https://github.com/OCA/queue.git", Branch: "18.0", Commit: strings.Repeat("e", 40), AddonsPath: true},
+			{Name: "odoo-upgrade-util", URL: "https://github.com/odoo/upgrade-util.git", Branch: "master", Commit: strings.Repeat("f", 40)},
+		},
+		ServerWideModules: []string{"queue_job"},
+		OdooConfig: map[string]string{
+			"workers":          "2",
+			"max_cron_threads": "1",
+		},
+		Environment: map[string]string{
+			"ODOO_QUEUE_JOB_CHANNELS": "root:4",
+		},
+		Ports: config.CalculatePorts("18.0"),
+	}
+	if err := Render(state); err != nil {
+		t.Fatal(err)
+	}
+	envDir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	composeData, err := os.ReadFile(filepath.Join(envDir, "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compose := string(composeData)
+	for _, required := range []string{
+		"ODOO_QUEUE_JOB_CHANNELS: root:4",
+		"./repositories/oca-queue:/mnt/repositories/oca-queue:ro",
+		"./repositories/odoo-upgrade-util:/mnt/repositories/odoo-upgrade-util:ro",
+	} {
+		if !strings.Contains(compose, required) {
+			t.Fatalf("docker-compose.yml missing preset pattern %q", required)
+		}
+	}
+	confData, err := os.ReadFile(filepath.Join(envDir, "odoo.conf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf := string(confData)
+	for _, required := range []string{
+		"addons_path = /opt/odoo-src/addons,/mnt/extra-addons,/mnt/repositories/oca-queue",
+		"workers = 2",
+		"max_cron_threads = 1",
+		"server_wide_modules = base,web,queue_job",
+	} {
+		if !strings.Contains(conf, required) {
+			t.Fatalf("odoo.conf missing preset pattern %q", required)
+		}
+	}
+	if strings.Contains(conf, "/mnt/repositories/odoo-upgrade-util") {
+		t.Fatal("odoo.conf includes tooling-only repository in addons_path")
+	}
+}
+
 func TestRenderEnterpriseUsesLockedSourceAndBuildSecret(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
