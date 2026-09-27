@@ -57,6 +57,26 @@ cd odooctl
 make install
 ```
 
+### Updating odooctl
+
+```bash
+# Check for a newer release
+odooctl update --check
+
+# Update using the detected install method
+odooctl update
+
+# Inspect the detected method and planned action
+odooctl update --check --json
+```
+
+`odooctl update` detects common install methods and delegates to the matching
+updater: APT/PPA installs use `apt`, Go installs use `go install`, source
+checkouts use `git pull --ff-only && make install`, and direct binary installs
+download the matching GitHub release asset with checksum verification when the
+release provides `checksums.txt`. Use `--method apt|release|go|source` to
+override detection when needed.
+
 ## Quick Start
 
 ```bash
@@ -400,6 +420,15 @@ explicitly approves the data loss.
 
 ## Commands Reference
 
+### Core Commands
+
+| Command | Description |
+|---------|-------------|
+| `odooctl version` | Print the installed odooctl version |
+| `odooctl update` | Update odooctl using the detected install method |
+| `odooctl update --check` | Check for a newer odooctl release without installing |
+| `odooctl update --dry-run` | Show the update plan without installing |
+
 ### Diagnostics and AI Commands
 
 | Command | Description |
@@ -430,6 +459,7 @@ Useful inspection commands support `--json` for agents and scripts:
 
 ```bash
 odooctl version --json
+odooctl update --check --json
 odooctl config show --json
 odooctl config get ssh-key-path --json
 odooctl config set ssh-key-path ~/.ssh/id_ed25519 --json
