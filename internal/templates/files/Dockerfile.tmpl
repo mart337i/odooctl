@@ -140,8 +140,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     && /opt/odoo-venv/bin/pip install --no-build-isolation{{else}}/opt/odoo-venv/bin/pip install{{end}}{{if not .UseAptOdooDependencies}} --no-cache-dir -r /opt/odoo-src/requirements.txt{{end}} \
         debugpy=={{.DebugpyVersion}} \
         ipython=={{.IPythonVersion}}{{if .IncludeLxmlHTMLClean}} \
-        lxml_html_clean{{end}}{{if .BrowserEnabled}} \
-        playwright==1.49.1{{end}} \
+        lxml_html_clean{{end}} \
     && printf '%s\n' \
         '#!/bin/sh' \
         'exec /opt/odoo-venv/bin/python3 /opt/odoo-src/odoo-bin "$@"' \
@@ -155,7 +154,10 @@ ENV PATH="/opt/odoo-venv/bin:${PATH}" \
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     CHROME_BIN=/usr/local/bin/chromium
 
-RUN /opt/odoo-venv/bin/python3 -m playwright install --with-deps chromium \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    python3 -m venv /opt/odoo-browser-venv \
+    && /opt/odoo-browser-venv/bin/pip install playwright==1.49.1 \
+    && /opt/odoo-browser-venv/bin/python3 -m playwright install --with-deps chromium \
     && CHROMIUM_PATH="$(find /opt/ms-playwright -type f -path '*/chrome-linux/chrome' | head -n 1)" \
     && test -n "${CHROMIUM_PATH}" \
     && ln -sf "${CHROMIUM_PATH}" /usr/local/bin/chromium \

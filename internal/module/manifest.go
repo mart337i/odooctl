@@ -24,10 +24,15 @@ func ParseManifest(moduleDir string) (ManifestInfo, error) {
 	if err != nil {
 		return ManifestInfo{}, err
 	}
+	return ParseManifestContent(moduleDir, data), nil
+}
+
+// ParseManifestContent parses already-read manifest bytes without filesystem access.
+func ParseManifestContent(moduleDir string, data []byte) ManifestInfo {
 	text := string(data)
 	info := ManifestInfo{
 		Module:      filepath.Base(moduleDir),
-		Path:        path,
+		Path:        filepath.Join(moduleDir, "__manifest__.py"),
 		Name:        parseStringField(text, "name"),
 		Version:     parseStringField(text, "version"),
 		Depends:     parseListField(text, "depends"),
@@ -40,7 +45,7 @@ func ParseManifest(moduleDir string) (ManifestInfo, error) {
 	if application, ok := parseBoolField(text, "application"); ok {
 		info.Application = application
 	}
-	return info, nil
+	return info
 }
 
 func parseStringField(text, key string) string {

@@ -418,6 +418,12 @@ Agents should not run destructive commands such as `odooctl docker reset -v`,
 `odooctl docker reset -vc`, or `odooctl docker deps clean` unless the developer
 explicitly approves the data loss.
 
+### MCP Inspection
+
+Connect AI clients to project-scoped inspection tools over stdio. See the
+[MCP setup and security guide](docs/ai/MCP.md) for OpenCode and Claude Code
+configuration, default tools, and opt-in SQL, ORM, browser, and container source.
+
 ## Commands Reference
 
 ### Core Commands
@@ -725,7 +731,7 @@ odooctl docker test --modules my_module --log-level=test:DEBUG
 
 ### Architecture
 
-- **Language:** Go 1.22 (cross-platform, single binary)
+- **Language:** Go 1.25+ (cross-platform, single binary)
 - **Package Structure:**
   - `cmd/` - CLI commands (cobra-based)
   - `internal/` - Core logic (config, docker, templates, git, modules)

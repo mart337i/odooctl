@@ -46,7 +46,7 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 			}
 
 			dockerfile := string(content)
-			for _, forbidden := range []string{"--break-system-packages", "RUN pip3 install"} {
+			for _, forbidden := range []string{"--break-system-packages", "RUN pip3 install", "playwright", "/opt/odoo-browser-venv"} {
 				if strings.Contains(dockerfile, forbidden) {
 					t.Fatalf("Dockerfile contains forbidden system pip install pattern %q", forbidden)
 				}
@@ -120,15 +120,27 @@ func TestRenderBrowserEnabledIncludesPlaywrightChromium(t *testing.T) {
 			}
 			dockerfile := string(dockerfileData)
 			for _, required := range []string{
-				"playwright==1.49.1",
+				"python3 -m venv /opt/odoo-browser-venv",
+				"/opt/odoo-browser-venv/bin/pip install playwright==1.49.1",
 				"PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 				"CHROME_BIN=/usr/local/bin/chromium",
-				"python3 -m playwright install --with-deps chromium",
+				"/opt/odoo-browser-venv/bin/python3 -m playwright install --with-deps chromium",
 				"/usr/local/bin/google-chrome",
 			} {
 				if !strings.Contains(dockerfile, required) {
 					t.Fatalf("Dockerfile missing browser pattern %q", required)
 				}
+			}
+			if strings.Contains(dockerfile, "--system-site-packages /opt/odoo-browser-venv") {
+				t.Fatal("browser venv must not inherit system packages")
+			}
+			_, odooInstall, found := strings.Cut(dockerfile, "python3 -m venv --system-site-packages /opt/odoo-venv")
+			if !found {
+				t.Fatal("missing Odoo venv installation")
+			}
+			odooInstall, _, _ = strings.Cut(odooInstall, "\n\n")
+			if strings.Contains(odooInstall, "playwright") {
+				t.Fatal("Playwright must not be installed with Odoo requirements")
 			}
 			composeData, err := os.ReadFile(filepath.Join(envDir, "docker-compose.yml"))
 			if err != nil {
