@@ -1,894 +1,238 @@
 # odooctl
 
-A CLI tool for managing Odoo Docker development environments. Written in Go for cross-platform support (Linux, macOS, Windows).
+Odoo Docker development environments, addon workflows, and AI inspection from
+one Go CLI. Build from pinned Odoo source, work with your local addons, and
+inspect the database, browser, and codebase through MCP.
 
-**Supported Odoo Versions:** 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0  
-**Enterprise Support:** Yes (via `--enterprise` flag)
+[Quick Start](#quick-start) | [Documentation](docs/README.md) |
+[Command Reference](docs/COMMANDS.md) | [Contributing](CONTRIBUTING.md)
 
-## Table of Contents
+## Capabilities
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Typical Development Workflow](#typical-development-workflow)
-- [Using AI With odooctl](#using-ai-with-odooctl)
-- [Commands Reference](#commands-reference)
-- [Advanced Features](#advanced-features)
-- [How It Works](#how-it-works)
-- [Contributing](#contributing)
+| Work | What odooctl provides | Guide |
+| --- | --- | --- |
+| Environments | Compose generation, pinned Community/Enterprise source, project selection, ports, backups | [Environments](docs/ENVIRONMENTS.md) |
+| Addons | Discovery, manifest/dependency inspection, scaffolding, hash-aware install/update, migration skeletons | [Modules](docs/MODULES.md) |
+| Dependencies | Runtime Python packages, optional discovery, OCA queue/migration presets | [Development](docs/DEVELOPMENT.md#python-dependencies) |
+| Runtime | Container commands, logs, Odoo/PostgreSQL shells, SQL, module state, debugger URLs | [Commands](docs/COMMANDS.md) |
+| Tests | Module/test-tag selection and Odoo web-test preparation | [Modules](docs/MODULES.md#tests) |
+| Browser | Page inspection, screenshots, traces, responsive MCP observation, approved CDN/map content | [Browser](docs/BROWSER.md) |
+| AI | Local context, debugging reports, generated prompts, source/database/browser MCP tools | [AI Workflows](docs/ai/USING_ODOOCTL_WITH_AI.md) |
+| CLI upkeep | Global settings, structured output, install-method-aware self-update | [Installation](docs/INSTALLATION.md) |
+
+## Requirements and Compatibility
+
+- CLI builds target Linux, macOS, and Windows; container workflows use Linux
+  containers and need a working Docker daemon, Compose, and project bind mounts.
+- Git and network access are needed to resolve Odoo source revisions and build
+  images. Enterprise additionally requires authorized repository access.
+- Go **1.25+** is needed to build the current source, not to run a downloaded
+  binary. Host Node.js is not required for the Docker browser runtime.
+- The current source catalogs **Odoo 12.0-20.0**, with **19.0** the default.
+  Generated PostgreSQL is **15 for 12-19** and **16 for 20**.
+
+Regenerating configuration does not migrate a database. Never attach PostgreSQL
+16 to a PostgreSQL 15 data directory. See the
+[environment and data boundaries](docs/ENVIRONMENTS.md#sources-and-versions).
+
+**Availability:** newer MCP/browser and Odoo 20 capabilities described here
+require a build containing those changes. A published binary, PPA package, or
+`go install ...@latest` may not include the current local work. Check the selected
+binary's help output; local fixture results are not release-availability evidence.
 
 ## Installation
 
-### Quick Install (Linux/macOS)
+For current development features, build the checkout containing them:
+
+```bash
+make build
+./bin/odooctl --help
+```
+
+This creates `bin/odooctl` without replacing an older CLI on `PATH`. Use its
+explicit path for unreleased commands; `make install` installs the checkout to
+the Go binary directory.
+
+For published releases, the Linux/macOS installer is:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mart337i/odooctl/main/install.sh | bash
 ```
 
-### Ubuntu/Debian (PPA)
+This executes a remote script and may use `sudo`. Manual release downloads,
+Windows, Go installation, PPA availability, PATH, and checksum caveats are in
+the [installation guide](docs/INSTALLATION.md).
+
+Inspect before updating an installed CLI:
 
 ```bash
-sudo add-apt-repository ppa:mart337i/odooctl
-sudo apt update
-sudo apt install odooctl
-```
-
-> **Note:** If you previously installed via another method, you may need to refresh your shell's command cache: run `hash -r` (bash/zsh) or open a new terminal.
-
-### Using Go
-
-```bash
-go install github.com/mart337i/odooctl@latest
-```
-
-### Windows (PowerShell)
-
-```powershell
-# Download latest release to a folder in PATH
-Invoke-WebRequest -Uri "https://github.com/mart337i/odooctl/releases/latest/download/odooctl-windows-amd64.exe" -OutFile "$env:LOCALAPPDATA\Microsoft\WindowsApps\odooctl.exe"
-```
-
-Or download manually from [GitHub Releases](https://github.com/mart337i/odooctl/releases) and add to your PATH.
-
-### Build from Source
-
-```bash
-git clone https://github.com/mart337i/odooctl.git
-cd odooctl
-make install
-```
-
-### Updating odooctl
-
-```bash
-# Check for a newer release
 odooctl update --check
-
-# Update using the detected install method
 odooctl update
-
-# Inspect the detected method and planned action
-odooctl update --check --json
 ```
 
-`odooctl update` detects common install methods and delegates to the matching
-updater: APT/PPA installs use `apt`, Go installs use `go install`, source
-checkouts use `git pull --ff-only && make install`, and direct binary installs
-download the matching GitHub release asset with checksum verification when the
-release provides `checksums.txt`. Use `--method apt|release|go|source` to
-override detection when needed.
+Updates affect the CLI, not Odoo databases. See
+[update methods and rollback](docs/INSTALLATION.md#updates-and-rollback).
 
 ## Quick Start
 
-```bash
-# Navigate to your Odoo module directory
-cd /path/to/your/odoo-modules
-
-# Create a new Docker environment
-odooctl docker create --odoo-version 18.0 --modules sale,purchase
-
-# Start containers and initialize database
-odooctl docker run -i
-
-# Access Odoo at http://localhost:9800
-# Login: admin / admin
-```
-
-## Typical Development Workflow
-
-### 1. Initial Setup
+Run project commands from an addons root containing your addon directories.
+The examples below assume `odooctl` selects the intended binary.
 
 ```bash
-# Start in your module directory
-cd ~/projects/my-odoo-modules
+cd /path/to/odoo-addons
+odooctl docker create --odoo-version 19.0 --modules sale --without-demo
 
-# Create environment (auto-detects git repo and version from branch)
-odooctl docker create
+# Fresh development database: builds the image and initializes Odoo data.
+odooctl docker run --init
 
-# Or specify version explicitly
-odooctl docker create --odoo-version 17.0 --modules sale,stock
-
-# With Odoo Enterprise
-odooctl docker create --odoo-version 18.0 --enterprise
-```
-
-**What happens:**
-- Detects project name from git repo or directory name
-- Extracts Odoo version from git branch (e.g., `17.0-feature` → `17.0`)
-- Calculates ports based on version (Odoo 17 → port 9700)
-- Generates Docker configs in `~/.odooctl/{project}/{branch}/`
-- Stores project lookup links in `~/.odooctl/projects/` without repo-local marker files
-- Does not scan Python dependencies unless `--auto-discover-deps` is explicitly passed
-
-### 2. First Run
-
-```bash
-# Start containers and initialize database
-odooctl docker run -i
-
-# Or separately
-odooctl docker run --build  # Build images first time
-# Then later when ready
-odooctl docker run -i       # Initialize database
-```
-
-**What happens:**
-- Builds Docker image with Odoo and baseline developer tooling
-- Starts PostgreSQL and Odoo containers
-- Initializes database with base modules
-- Configures report.url for proper PDF generation
-- Tracks initialization state in `.odooctl-state.json`
-- Keeps module Python dependencies in the runtime volume at `/opt/odoo-extra-python`
-
-### 3. Daily Development
-
-```bash
-# Check what's running
 odooctl docker status
-
-# View logs
-odooctl docker logs -f
-
-# Open Odoo or MailHog
 odooctl docker open odoo
-odooctl docker open mailhog
+```
 
-# Develop your module...
-# Edit code in your local directory
+Creation generates files and pins source commits; initialization is an explicit
+database-affecting step. The local development account is `admin` / `admin`.
+Use the URL reported by status: port conflicts can change the initial allocation.
 
-# Install/update only changed modules (smart detection)
-odooctl docker install
+For an existing environment, start with `odooctl doctor --json` and confirm
+`odooctl docker path --json` before initialization or updates. Plain `docker run`
+can prompt to build and initialize on first use; `--no-prompt` suppresses prompts,
+not all startup side effects. Follow the [development guide](docs/DEVELOPMENT.md)
+for service, dependency, and reconfiguration behavior.
 
-# Or force update specific modules
-odooctl docker install my_module,my_other_module
+## Everyday Development
 
-# Stop for the day
+Inspect local changes before applying them:
+
+```bash
+odooctl docker status
+odooctl docker logs --errors --since 10m
+odooctl module manifest my_module --json
+odooctl module changed --json
+odooctl docker install --list-only --json
+```
+
+The last command previews ordinary local hash selection. Do not combine it with
+`--compute-hashes` or `--update-all`, or assume external-only targets are dry runs.
+
+After approving the database operation:
+
+```bash
+odooctl docker install my_module my_other_module
+odooctl docker test --test-tags /my_module
 odooctl docker stop
 ```
 
-### 4. Testing Your Changes
+Positional install names are space-separated. Naming a local module does not
+force an update: unchanged hashes are skipped. Hashes exclude `static/` and
+`tests/`, so frontend/test-only changes need the appropriate reload or test
+workflow. Tests can affect the selected database; use a disposable environment
+when isolation matters. See [module installation and tests](docs/MODULES.md).
 
-```bash
-# Run Odoo tests for your module
-odooctl docker test --modules my_module --test-tags post_install
+## AI and MCP
 
-# Or run specific test class
-odooctl docker test --test-tags /my_module:TestMyClass
-
-# Open Odoo shell for debugging
-odooctl odoo shell
->>> self.env['res.partner'].search([])
-
-# Open PostgreSQL shell
-odooctl docker db
-
-# Run quick SQL
-odooctl docker sql "select id, login from res_users"
-```
-
-### 5. Adding Dependencies
-
-```bash
-# Scan manifests for external Python dependencies
-odooctl docker deps scan
-
-# Install packages into the runtime dependency volume
-odooctl docker deps sync requests pandas
-
-# Or sync missing dependencies discovered from manifests
-odooctl docker deps sync
-
-# Add custom addons path
-odooctl docker reconfigure --add-addons-path ~/external-addons
-
-# Create with common opt-in tooling presets
-odooctl docker create --preset queue-job
-odooctl docker create --preset migration
-```
-
-### 6. Creating New Modules
-
-```bash
-# Scaffold a new module with model
-odooctl module scaffold my_new_module --model
-
-# Scaffold in specific version
-odooctl module scaffold my_module --odoo-version 18.0 --model
-
-# Install the new module
-odooctl docker install my_new_module
-```
-
-### 7. Working with Branches
-
-```bash
-# Switch git branch
-git checkout -b 18.0-new-feature
-
-# Create new environment for this branch
-odooctl docker create
-
-# Now you have isolated environments:
-# ~/.odooctl/my-project/17.0-main/
-# ~/.odooctl/my-project/18.0-new-feature/
-```
-
-### 8. Cleanup
-
-```bash
-# Stop containers only
-odooctl docker reset
-
-# Stop and remove database
-odooctl docker reset -v
-
-# Full cleanup (containers, volumes, and config files)
-odooctl docker reset -v -c -f
-```
-
-## Interacting With Containers During Development
-
-odooctl wraps the generated Docker Compose environment so you do not need to find
-the compose directory, remember service names, or type database/config paths.
-
-Run arbitrary commands inside a service:
-
-```bash
-odooctl docker exec odoo -- python --version
-odooctl docker exec odoo -- ls /mnt/extra-addons
-odooctl docker exec --root odoo -- apt update
-odooctl docker exec -T db -- psql -U odoo -d odoo-190 -c "select now();"
-```
-
-Use raw Compose when needed:
-
-```bash
-odooctl docker compose ps
-odooctl docker compose -- top
-odooctl docker compose -- ps --services
-```
-
-Restart only the Odoo service after code changes:
-
-```bash
-odooctl docker restart
-odooctl docker restart odoo
-odooctl docker restart db odoo
-```
-
-Open shells:
-
-```bash
-odooctl docker shell
-odooctl docker shell db
-odooctl docker shell --root
-odooctl docker shell --odoo
-```
-
-Query the database without entering psql:
-
-```bash
-odooctl docker sql "select id, login from res_users"
-odooctl docker sql --json "select name, state from ir_module_module where name = 'sale'"
-odooctl docker sql --file debug.sql
-```
-
-Filter logs for Odoo errors:
-
-```bash
-odooctl docker logs --errors
-odooctl docker logs --grep Traceback --since 10m
-odooctl docker logs db --since 30m
-```
-
-Print URLs and debugger attach details:
-
-```bash
-odooctl docker open
-odooctl docker debug-info
-```
-
-Use Odoo-specific helpers for ORM/runtime tasks:
-
-```bash
-odooctl odoo shell
-odooctl odoo eval "env['res.users'].search([]).mapped('login')"
-odooctl odoo update-apps
-odooctl odoo module-state my_module --json
-```
-
-## Browser, Design, and Web Test Workflows
-
-Enable Playwright Chromium when creating or reconfiguring an environment:
-
-```bash
-odooctl docker create --browser
-odooctl docker reconfigure --browser --rebuild
-```
-
-Browser tooling is supported for Odoo 15.0+ environments. It installs Python
-Playwright and Chromium inside the Odoo image, exposes `chromium` and
-`google-chrome` for Odoo's browser tests, and stores generated artifacts under
-the environment's `browser-artifacts/` directory.
-
-Check browser readiness:
-
-```bash
-odooctl browser doctor
-odooctl browser doctor --json
-```
-
-Use browser inspection for AI-assisted design and debugging:
-
-```bash
-odooctl browser snapshot /web
-odooctl browser inspect /web --json
-odooctl browser screenshot /web --output /tmp/odoo.png
-odooctl browser check /web --expect-text "Discuss"
-odooctl browser trace /web --output /tmp/odoo-trace.zip
-```
-
-If login is needed:
-
-```bash
-odooctl browser inspect /web --login admin --password admin --json
-```
-
-Run Odoo web/browser tests with an early Chromium readiness check:
-
-```bash
-odooctl docker test --web --test-tags /web
-```
-
-## Using AI With odooctl
-
-odooctl can generate local, redacted context for ChatGPT, Claude, OpenCode,
-Cursor, and other AI tools. It does not call an LLM API itself.
-
-Start with diagnostics:
-
-```bash
-odooctl doctor
-odooctl doctor --json
-```
-
-Generate compact context for a developer chat:
-
-```bash
-odooctl ai context
-odooctl ai context --module my_module
-```
-
-Generate machine-readable context for an agent:
+odooctl produces local context and exposes tools to your AI client; it does not
+call an LLM provider itself.
 
 ```bash
 odooctl ai context --module my_module --format json
-```
-
-When debugging failures, create a redacted report:
-
-```bash
 odooctl ai debug-report --module my_module --include-logs
-```
-
-Generate a ready-to-paste prompt:
-
-```bash
 odooctl ai prompt debug --module my_module
 ```
 
-Recommended safe first commands for agents:
+Reports and logs can contain private data; redaction is best-effort. See
+[AI workflows](docs/ai/USING_ODOOCTL_WITH_AI.md).
+
+### Source and Database Inspection
+
+Configure your MCP client to launch the project-scoped server:
+
+```bash
+odooctl mcp serve --project /absolute/path/to/odoo-addons
+```
+
+Default tools inspect modules and source; an existing environment also adds
+status and bounded logs. SQL and ORM are explicit capabilities requiring
+configured roles/users and allowlists. MCP SQL uses restricted reads in verified
+read-only transactions; ordinary CLI SQL and Odoo shell are privileged interfaces
+and do not inherit those guards.
+
+Setup, grants, tool limits, and OpenCode/Claude Code configuration are in the
+[MCP guide](docs/ai/MCP.md).
+
+### Browser Inspection
+
+| Mode | Best for |
+| --- | --- |
+| `odooctl browser ...` | Manual page checks, full-page captures, and traces using a browser-enabled Odoo image |
+| `odooctl mcp serve --browser` | Bounded, local-only browser observation beside the source/database tools |
+| `odooctl mcp browser` | Official Playwright MCP snapshots, responsive screenshots, console/network diagnostics, approved CDN assets and map frames |
+
+Prepare the separate Playwright runtime explicitly for a running project:
+
+```bash
+odooctl mcp browser setup --project /absolute/path/to/odoo-addons \
+  --allow-origin https://cdn.jsdelivr.net \
+  --allow-origin https://www.openstreetmap.org \
+  --allow-origin https://tile.openstreetmap.org
+```
+
+Then configure the client to launch `odooctl mcp browser --project PATH`. Both
+authenticated MCP browser modes default to `admin` / `admin` for local development;
+nonempty `ODOOCTL_MCP_BROWSER_LOGIN` and `ODOOCTL_MCP_BROWSER_PASSWORD` independently
+override those values. Add `--public` to the separate browser mode to skip login.
+Ordinary browser CLI commands instead use explicit login flags.
+
+The separate runtime exposes observation tools, not clicks, typing, uploads, or
+arbitrary code. Approved origins remain a trust decision: page loads can write
+data, and screenshots can expose private content. WebSockets/service workers
+are unavailable; this is not an unrestricted user browser.
+
+Use the [browser comparison](docs/BROWSER.md) to choose a mode and the
+[Playwright MCP guide](docs/ai/PLAYWRIGHT_MCP.md) for client setup, network policy,
+artifact privacy, and verified Odoo 17-20 fixture coverage.
+
+## Safety and Troubleshooting
+
+- Confirm the project link, environment path, and database before writes.
+  Switching Git branches alone does not switch the selected environment.
+- Initialization, installs/upgrades, tests, dependency sync, and arbitrary
+  SQL/shell execution can change data or services. JSON is an output format,
+  not a read-only guarantee.
+- `docker stop` retains containers and data. `docker reset` removes containers;
+  `docker reset -v` deletes volumes, and `-c` removes generated configuration.
+  Volume removal and `docker deps clean` require explicit data-loss approval.
+- Diagnose before deleting data. Doctor may create a temporary bind-mount marker
+  and an ephemeral probe container; it does not initialize Odoo.
 
 ```bash
 odooctl doctor --json
-odooctl ai context --format json
-odooctl module list --json
 odooctl docker status --json
-odooctl docker install --list-only --json
-odooctl docker debug-info --json
+odooctl docker logs --errors
+odooctl ai debug-report --include-logs
 ```
 
-For browser or design tasks, first enable browser tooling and then use:
-
-```bash
-odooctl browser doctor --json
-odooctl browser inspect /web --json
-```
-
-Agents should not run destructive commands such as `odooctl docker reset -v`,
-`odooctl docker reset -vc`, or `odooctl docker deps clean` unless the developer
-explicitly approves the data loss.
-
-## Commands Reference
-
-### Core Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl version` | Print the installed odooctl version |
-| `odooctl update` | Update odooctl using the detected install method |
-| `odooctl update --check` | Check for a newer odooctl release without installing |
-| `odooctl update --dry-run` | Show the update plan without installing |
-
-### Diagnostics and AI Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl doctor` | Diagnose project state, Docker access, services, files, and dependencies |
-| `odooctl doctor --json` | Print structured diagnostics for AI agents and automation |
-| `odooctl ai context` | Print compact AI-ready project context |
-| `odooctl ai context --module my_module` | Print context focused on one module |
-| `odooctl ai context --format json` | Print machine-readable AI context |
-| `odooctl ai debug-report --include-logs` | Print a redacted debugging report with recent logs |
-| `odooctl ai debug-report --include-browser` | Include Playwright Chromium runtime status |
-| `odooctl ai prompt debug --module my_module` | Generate a ready-to-paste debugging prompt |
-
-### Browser Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl browser doctor` | Check Playwright Chromium availability in the Odoo image |
-| `odooctl browser inspect` | Return page title, visible text, console errors, and failed requests |
-| `odooctl browser snapshot` | Print a compact visible-text snapshot |
-| `odooctl browser screenshot` | Capture a full-page screenshot |
-| `odooctl browser check` | Assert that expected visible text appears |
-| `odooctl browser trace` | Record a Playwright trace ZIP |
-
-### JSON Output
-
-Useful inspection commands support `--json` for agents and scripts:
-
-```bash
-odooctl version --json
-odooctl update --check --json
-odooctl config show --json
-odooctl config get ssh-key-path --json
-odooctl config set ssh-key-path ~/.ssh/id_ed25519 --json
-odooctl config unset github-token --json
-odooctl doctor --json
-odooctl docker create --json
-odooctl docker status --json
-odooctl docker path --json
-odooctl docker stop --json
-odooctl docker reset --json
-odooctl docker logs --json
-odooctl docker dump --json
-odooctl docker restart --json
-odooctl docker open --json
-odooctl docker debug-info --json
-odooctl docker sql --json "select name, state from ir_module_module"
-odooctl docker deps scan --json
-odooctl docker deps list --json
-odooctl docker goto --json
-odooctl docker install --list-only --json
-odooctl module list --json
-odooctl module deps my_module --json
-odooctl module manifest my_module --json
-odooctl module changed --json
-odooctl module scaffold my_module --json
-odooctl module migrate plan my_module --json
-odooctl module migrate scaffold my_module --to 19.0.1.0.0 --json
-odooctl odoo module-state my_module --json
-odooctl browser doctor --json
-odooctl browser inspect /web --json
-odooctl browser screenshot /web --json
-odooctl browser check /web --expect-text "Discuss" --json
-odooctl browser trace /web --json
-```
-
-### Docker Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl docker create` | Generate Docker environment files |
-| `odooctl docker compose` | Run docker compose in the generated environment directory |
-| `odooctl docker run` | Initialize database and start containers |
-| `odooctl docker exec` | Run a command inside a service |
-| `odooctl docker restart` | Restart one or more services, defaulting to Odoo |
-| `odooctl docker status` | Show container status and access URLs |
-| `odooctl docker logs` | View container logs (`-f` to follow) |
-| `odooctl docker install` | Install/update modules with hash-based change detection |
-| `odooctl docker test` | Run Odoo tests with advanced filtering |
-| `odooctl docker shell` | Open bash or Odoo shell in container |
-| `odooctl docker db` | Open PostgreSQL shell |
-| `odooctl docker sql` | Run quick SQL against the Odoo database |
-| `odooctl docker deps` | Scan, sync, list, or clean Python dependencies |
-| `odooctl docker odoo-bin` | Run odoo-bin commands directly |
-| `odooctl docker open` | Open or print Odoo/MailHog URLs |
-| `odooctl docker debug-info` | Show URLs, DB, config paths, and debugger attach config |
-| `odooctl docker stop` | Stop running containers |
-| `odooctl docker reset` | Remove containers, optionally volumes and files |
-| `odooctl docker reconfigure` | Add pip packages or addons paths |
-| `odooctl docker preset list` | List built-in Odoo/OCA environment presets |
-| `odooctl docker goto` | Navigate to environment directory |
-| `odooctl docker path` | Print environment directory path |
-| `odooctl docker edit` | Edit configuration files |
-
-### Module Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl module scaffold` | Create a new Odoo module with proper structure |
-| `odooctl module list` | List modules discovered in the project/addons paths |
-| `odooctl module deps` | Show manifest module and Python dependencies |
-| `odooctl module manifest` | Inspect a parsed module manifest |
-| `odooctl module changed` | Show local modules whose hashes changed |
-| `odooctl module test` | Run tests for modules using Odoo test tags |
-| `odooctl module upgrade` | Install/update modules through Docker |
-| `odooctl module migrate` | Plan or scaffold module migration files |
-
-### Odoo Runtime Commands
-
-| Command | Description |
-|---------|-------------|
-| `odooctl odoo shell` | Open Odoo's Python shell for the current database |
-| `odooctl odoo eval` | Evaluate a Python expression in Odoo shell context |
-| `odooctl odoo update-apps` | Refresh Odoo's apps/module list |
-| `odooctl odoo module-state` | Inspect module states from `ir.module.module` |
-
-## Advanced Features
-
-### Smart Module Installation
-
-The `install` command uses SHA256 hashing to detect actual code changes:
-
-```bash
-# Auto-detect and update only changed modules
-odooctl docker install
-
-# See what would be updated (dry run)
-odooctl docker install --list-only
-
-# Install all modules in directory
-odooctl docker install all
-
-# Use wildcards
-odooctl docker install sale_*
-
-# Ignore specific modules
-odooctl docker install all --ignore=base,web
-
-# Force full upgrade
-odooctl docker install --update-all
-```
-
-**How it works:**
-1. Calculates SHA256 hash of each module (excludes tests, static, __pycache__)
-2. Compares with stored hashes from `module-hashes.json`
-3. Only runs odoo-bin -u for modules that actually changed
-4. Dramatically faster than always updating everything
-
-### Automatic Python Dependency Discovery
-
-`odooctl docker create` does not scan or prompt for module Python dependencies by default. That keeps environment creation predictable and avoids dependency-install failures during startup.
-
-Use explicit dependency commands when you want to inspect or sync dependencies:
-
-During `odooctl docker install`, odooctl also scans the modules being installed
-or updated. Missing `external_dependencies['python']` packages are installed into
-a persistent runtime dependency volume before Odoo runs the module install/update.
-Local development defaults to `--deps-mode runtime`; when `CI=true`, the default
-switches to `fail` so CI reports missing dependencies instead of mutating the
-environment silently.
-
-```bash
-# Scan configured modules/addons paths
-odooctl docker deps scan
-
-# Install missing dependencies into the runtime dependency volume
-odooctl docker deps sync
-
-# Force install explicit packages
-odooctl docker deps sync requests zeep
-
-# Clean the runtime dependency volume
-odooctl docker deps clean
-```
-
-### Environment Presets
-
-Presets are opt-in bundles for common Odoo/OCA development tooling. They expand
-to explicit environment state: managed Git repositories with pinned commits,
-pip packages, init modules, config overrides, and environment variables.
-
-```bash
-# See available presets
-odooctl docker preset list
-
-# New environment with OCA queue_job configured
-odooctl docker create --preset queue-job
-
-# Add OpenUpgrade and migration tooling to an existing environment
-odooctl docker reconfigure --preset migration
-```
-
-Built-in presets:
-
-| Preset | Includes |
-|--------|----------|
-| `queue-job` | OCA `queue`, installs `queue_job`, loads it server-wide, sets worker/jobrunner defaults |
-| `migration` | OCA `OpenUpgrade`, Odoo `upgrade-util` checkout, and `openupgradelib` |
-
-Preset repositories are stored under the environment directory in
-`~/.odooctl/<project>/<environment>/repositories/` and mounted read-only into
-the Odoo container. The default environment remains minimal unless a preset is
-selected.
-
-You can still opt in during create or reconfigure:
-
-```bash
-odooctl docker create --auto-discover-deps
-odooctl docker reconfigure --auto-discover-deps
-```
-
-Example manifest:
-```python
-{
-    'external_dependencies': {
-        'python': ['requests', 'pandas'],
-    },
-}
-```
-
-### Multi-Environment Support
-
-Project structure: `~/.odooctl/{project}/{branch}/`
-
-**Benefits:**
-- Test same modules on different Odoo versions
-- Isolate feature branches
-- Switch between environments instantly
-
-```bash
-# In git repo with branch "17.0-main"
-odooctl docker create
-# → ~/.odooctl/my-project/17.0-main/
-
-# Switch branch
-git checkout 18.0-feature
-odooctl docker create
-# → ~/.odooctl/my-project/18.0-feature/
-
-# Both environments coexist independently
-```
-
-### Port Auto-Resolution
-
-Ports are calculated from Odoo version: `8000 + (version * 100)`
-
-| Version | Odoo Port | Mailhog | Debug |
-|---------|-----------|---------|-------|
-| 12.0    | 9200      | 9225    | 5278  |
-| 13.0    | 9300      | 9325    | 5378  |
-| 14.0    | 9400      | 9425    | 5478  |
-| 15.0    | 9500      | 9525    | 5578  |
-| 16.0    | 9600      | 9625    | 5678  |
-| 17.0    | 9700      | 9725    | 5778  |
-| 18.0    | 9800      | 9825    | 5878  |
-| 19.0    | 9900      | 9925    | 5978  |
-
-If ports conflict, odooctl automatically finds available ports and regenerates configs.
-
-### Version-Aware Module Scaffolding
-
-Templates automatically adjust to Odoo version:
-
-```bash
-# Odoo 18+ uses <list> in views
-odooctl module scaffold my_module --odoo-version 18.0 --model
-
-# Odoo 17 and below uses <tree>
-odooctl module scaffold my_module --odoo-version 17.0 --model
-```
-
-### Test Filtering
-
-Run specific tests with powerful filtering:
-
-```bash
-# Run post_install tests only
-odooctl docker test --modules my_module --test-tags post_install
-
-# Run specific test class
-odooctl docker test --test-tags /my_module:TestMyClass
-
-# Run specific test method
-odooctl docker test --test-tags .test_method_name
-
-# Exclude slow tests
-odooctl docker test --test-tags 'standard,-slow'
-
-# With debug logging
-odooctl docker test --modules my_module --log-level=test:DEBUG
-```
-
-## How It Works
-
-### Architecture
-
-- **Language:** Go 1.22 (cross-platform, single binary)
-- **Package Structure:**
-  - `cmd/` - CLI commands (cobra-based)
-  - `internal/` - Core logic (config, docker, templates, git, modules)
-  - `pkg/` - Public utilities (prompts)
-
-### State Management
-
-Environment state is stored in `~/.odooctl/{project}/{branch}/.odooctl-state.json`.
-Project lookup uses global links in `~/.odooctl/projects/`, keyed by the absolute
-project root. odooctl does not create a repo-local `.odooctl` marker file.
-
-```json
-{
-  "project_name": "my-project",
-  "odoo_version": "18.0",
-  "odoo_commit": "<community commit SHA>",
-  "enterprise_commit": "<enterprise commit SHA>",
-  "docker_schema_version": 2,
-  "branch": "main",
-  "modules": ["sale", "purchase"],
-  "ports": {
-    "odoo": 9800,
-    "mailhog": 9825
-  },
-  "python_deps_hash": "...",
-  "initialized_at": "2024-01-15T10:30:00Z",
-  "built_at": "2024-01-15T10:25:00Z"
-}
-```
-
-### Docker Container Design
-
-The generated image is built from the `odoo/odoo` and, when enabled, `odoo/enterprise` GitHub repositories rather than an official Odoo Docker image or moving nightly Debian package. `odooctl docker create` resolves the selected branch once and stores the exact commit SHA in `.odooctl-state.json`. Later builds use those SHAs instead of following a moving branch head.
-
-**Why use Python virtual environments?**
-
-The generated Dockerfile installs Odoo's pinned `requirements.txt` (or the matching Debian packages for Odoo 12/13) and baseline developer Python tools into `/opt/odoo-venv` instead of the system Python environment:
-
-- Builds Community and Enterprise from the same source branch
-- Avoids conflicts with operating-system Python packages
-- Avoids PEP 668 `--break-system-packages` failures on newer base images
-- Keeps Python tooling isolated and first on Odoo's Python path
-- Uses the Odoo source tree at `/opt/odoo-src`
-
-**Build caching:**
-- Stable system packages and Odoo dependencies are placed before generated configuration layers
-- BuildKit caches pip and npm downloads
-- Source revisions are immutable, so cached layers cannot silently change to a different Odoo release
-- Project addons and module-specific dependencies remain outside the image and do not require an image rebuild
-
-New environments use Compose-scoped images, networks, and volumes so projects and branches cannot share databases accidentally. Existing state files retain their legacy volume names when regenerated to avoid silently abandoning existing data.
-
-Module-specific Python packages are installed into a persistent runtime volume at
-`/opt/odoo-extra-python`, which is added to `PYTHONPATH`. This avoids rebuilding
-the Docker image when a module adds or changes `external_dependencies['python']`.
-The image keeps baseline developer tools in `/opt/odoo-venv`; module dependencies
-are synchronized with `odooctl docker deps sync` or automatically by
-`odooctl docker install`.
-
-**Included Tools:**
-- Python 3 + pip
-- PostgreSQL client
-- wkhtmltopdf (for PDF reports)
-- git, vim, htop (development tools)
-- debugpy (remote debugging)
-- ipython (Odoo shell)
-
-### Enterprise Source
-
-Enterprise builds use the same Odoo version branch as Community and record both resolved commit SHAs. Authentication is provided only during the Docker build through an SSH agent, SSH-key secret, or GitHub token secret. Credentials are not copied into the image.
-
-### Vendor Directory
-
-The project includes a vendored `vendor/` directory (14MB) committed to git.
-
-**Why?**
-- Required for Debian PPA packaging
-- Ensures reproducible builds
-- Offline build capability
-
-For development, you can use `go mod` normally. Vendoring is only needed for release builds.
+Fix daemon, WSL/file-sharing, and bind-mount failures before retrying Odoo work.
+See [debugging workflows](docs/ai/DEBUGGING_WORKFLOWS.md) and the
+[documentation index](docs/README.md) for focused recovery steps.
 
 ## Contributing
 
-### Development Setup
+Use Go 1.25+ and the local binary when developing:
 
 ```bash
-# Clone repository
-git clone https://github.com/mart337i/odooctl.git
-cd odooctl
-
-# Build
+go test ./...
+go vet ./...
 make build
-
-# Run
-./bin/odooctl --help
-
-# Format and vet
-make fmt
-make vet
 ```
 
-### Code Quality
+[Contributing](CONTRIBUTING.md) covers formatting, race/live tests, vendoring,
+and packaging. [Architecture](docs/ARCHITECTURE.md) explains state, source pins,
+container design, and runtime boundaries. The
+[agent version matrix](docs/ai/MCP_VERSION_MATRIX.md) records scoped Community
+fixture evidence, not comprehensive addon, Enterprise, or production certification.
 
-```bash
-# Format code (excluding vendor)
-make fmt
+## Project
 
-# Run static analysis
-make vet
-
-# Build for all platforms
-make build-all
-```
-
-## Troubleshooting
-
-### Port Conflicts
-
-If you see port conflicts:
-```bash
-odooctl docker run
-# → Automatically detects conflicts and uses available ports
-```
-
-### Database Issues
-
-```bash
-# Reset database and reinitialize
-odooctl docker reset -v
-odooctl docker run -i
-```
-
-### Module Not Updating
-
-```bash
-# Check if module actually changed
-odooctl docker install --list-only
-
-# Force update
-odooctl docker install my_module
-
-# Or force full upgrade
-odooctl docker install --update-all
-```
-
-### Container Won't Start
-
-```bash
-# Check logs
-odooctl docker logs
-
-# Rebuild from scratch
-odooctl docker reset -v
-odooctl docker run --build -i
-```
-
-## License
-
-MIT
-
-## Links
-
-- [GitHub Repository](https://github.com/mart337i/odooctl)
-- [Issue Tracker](https://github.com/mart337i/odooctl/issues)
-- [Releases](https://github.com/mart337i/odooctl/releases)
+MIT licensed. [Repository](https://github.com/mart337i/odooctl) |
+[Issues](https://github.com/mart337i/odooctl/issues) |
+[Releases](https://github.com/mart337i/odooctl/releases)

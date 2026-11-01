@@ -64,7 +64,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version-file: go.mod
 
       - name: Build all platforms
         run: make build-all VERSION=${{ steps.bump.outputs.new_tag }}
@@ -97,7 +97,8 @@ jobs:
     needs: release
     if: |
       needs.release.result == 'success' &&
-      !contains(github.event.head_commit.message, '[skip ppa]')
+      !contains(github.event.head_commit.message, '[skip ppa]') &&
+      vars.ODOOCTL_PPA_GO_125_READY == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -113,6 +114,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y devscripts debhelper golang-go build-essential dput
+
+      - name: Set up Go for vendoring
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
 
       - name: Import GPG key
         env:
@@ -146,6 +152,7 @@ jobs:
           cat debian/changelog
 
       - name: Vendor Go dependencies
+        # Distro Go versions may be too old to parse this module's go directive.
         run: go mod vendor
 
       - name: Create GPG signing wrapper

@@ -7,6 +7,7 @@ import (
 	"github.com/mart337i/odooctl/cmd/ai"
 	browsercmd "github.com/mart337i/odooctl/cmd/browser"
 	"github.com/mart337i/odooctl/cmd/docker"
+	mcpcmd "github.com/mart337i/odooctl/cmd/mcp"
 	"github.com/mart337i/odooctl/cmd/module"
 	odoocmd "github.com/mart337i/odooctl/cmd/odoo"
 	"github.com/mart337i/odooctl/internal/output"
@@ -36,6 +37,7 @@ func init() {
 	rootCmd.AddCommand(browsercmd.Cmd)
 	rootCmd.AddCommand(docker.Cmd)
 	rootCmd.AddCommand(module.Cmd)
+	rootCmd.AddCommand(mcpcmd.NewCommand(version))
 	rootCmd.AddCommand(odoocmd.Cmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(versionCmd)

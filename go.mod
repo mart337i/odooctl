@@ -1,10 +1,12 @@
 module github.com/mart337i/odooctl
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/AlecAivazis/survey/v2 v2.3.7
 	github.com/fatih/color v1.16.0
+	github.com/google/jsonschema-go v0.4.2
+	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/spf13/cobra v1.8.0
 )
 
@@ -14,8 +16,12 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
+	github.com/segmentio/asm v1.1.3 // indirect
+	github.com/segmentio/encoding v0.5.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/sys v0.14.0 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	golang.org/x/oauth2 v0.34.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 )

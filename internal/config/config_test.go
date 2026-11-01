@@ -100,3 +100,50 @@ func TestRemoveProjectLink(t *testing.T) {
 		t.Fatalf("project link was not removed: %v", err)
 	}
 }
+
+func TestLookupFromDirDoesNotRepairOrRemoveMarkers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	state := &State{ProjectName: "passive", Branch: "main", ProjectRoot: root, OdooVersion: "18.0"}
+	if err := state.Save(); err != nil {
+		t.Fatal(err)
+	}
+	envDir, _ := EnvironmentDir(state.ProjectName, state.Branch)
+	marker := filepath.Join(root, legacyMarkerFileName)
+	if err := os.WriteFile(marker, []byte(envDir), 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LookupFromDir(root)
+	if err != nil || loaded.ProjectRoot != root {
+		t.Fatalf("lookup: %+v %v", loaded, err)
+	}
+	link, _ := ProjectLinkPath(root)
+	if _, err := os.Stat(link); !os.IsNotExist(err) {
+		t.Fatalf("passive lookup wrote link: %v", err)
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != envDir {
+		t.Fatalf("passive lookup changed marker: %s %v", data, err)
+	}
+}
+
+func TestPassiveLookupRejectsAmbiguousEnvironment(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	for _, branch := range []string{"main", "other"} {
+		state := &State{ProjectName: "ambiguous", Branch: branch, ProjectRoot: root, OdooVersion: "18.0"}
+		if err := state.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := LookupFromDir(root); err == nil {
+		t.Fatal("passive lookup silently selected one of multiple environments")
+	}
+	selected := &State{ProjectName: "ambiguous", Branch: "other", ProjectRoot: root, OdooVersion: "18.0"}
+	if err := SaveProjectLink(selected); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LookupFromDir(root)
+	if err != nil || loaded.Branch != "other" {
+		t.Fatalf("explicit project link was not respected: %+v %v", loaded, err)
+	}
+}

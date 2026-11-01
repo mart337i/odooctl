@@ -359,9 +359,18 @@ func Load(projectName, branch string) (*State, error) {
 	return &state, nil
 }
 
-// LoadFromDir finds state for a project directory using global project links.
-// It never reads or writes repo-local marker files.
+// LoadFromDir finds state using global project links, repairing missing links
+// on fallback discovery (which may remove obsolete repo-local markers).
 func LoadFromDir(dir string) (*State, error) {
+	return loadFromDir(dir, true)
+}
+
+// LookupFromDir resolves an environment without repairing links or removing markers.
+func LookupFromDir(dir string) (*State, error) {
+	return loadFromDir(dir, false)
+}
+
+func loadFromDir(dir string, repair bool) (*State, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
@@ -397,6 +406,7 @@ func LoadFromDir(dir string) (*State, error) {
 		return nil, err
 	}
 
+	var match *State
 	for _, projectEntry := range projectEntries {
 		if !projectEntry.IsDir() || projectEntry.Name() == ProjectLinksDirName {
 			continue
@@ -421,12 +431,21 @@ func LoadFromDir(dir string) (*State, error) {
 			}
 
 			if sameOrChild(absDir, state.ProjectRoot) {
-				_ = SaveProjectLink(state)
-				return state, nil
+				if repair {
+					_ = SaveProjectLink(state)
+					return state, nil
+				}
+				if match != nil {
+					return nil, fmt.Errorf("multiple environments match this directory; select the intended environment through its project link before passive lookup")
+				}
+				match = state
 			}
 		}
 	}
 
+	if match != nil {
+		return match, nil
+	}
 	return nil, os.ErrNotExist
 }
 
