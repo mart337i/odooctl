@@ -14,10 +14,9 @@ func NewCommand(version string) *cobra.Command {
 	cmd := &cobra.Command{Use: "mcp", Short: "Expose project-scoped inspection tools to AI clients"}
 	serve := &cobra.Command{
 		Use: "serve", Short: "Run a local MCP server over stdio", Args: cobra.NoArgs, SilenceUsage: true,
-		Long: "Run inspection-only MCP tools. Runtime tools never start containers. Credentials are read from server environment variables, not tool arguments. See docs/ai/MCP.md.",
+		Long: "Run inspection-only MCP tools. Runtime tools never start containers. Browser login defaults to admin/admin for local development; ODOOCTL_MCP_BROWSER_LOGIN and ODOOCTL_MCP_BROWSER_PASSWORD override it. Credentials are never tool arguments. See docs/ai/MCP.md.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.BrowserLogin = os.Getenv("ODOOCTL_MCP_BROWSER_LOGIN")
-			options.BrowserPassword = os.Getenv("ODOOCTL_MCP_BROWSER_PASSWORD")
+			options.BrowserLogin, options.BrowserPassword = browserCredentials(options.BrowserEnabled)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return mcpsrv.Serve(ctx, options, version)
@@ -29,8 +28,23 @@ func NewCommand(version string) *cobra.Command {
 	serve.Flags().IntVar(&options.OdooUserID, "odoo-user-id", 0, "Non-superuser Odoo ID; enables ORM tools with --models")
 	serve.Flags().StringSliceVar(&options.Models, "models", nil, "Allowlisted Odoo model names, comma-separated")
 	serve.Flags().IntSliceVar(&options.CompanyIDs, "company-ids", nil, "Selectable Odoo company context IDs, not row isolation (default: user's main company)")
-	serve.Flags().BoolVar(&options.BrowserEnabled, "browser", false, "Enable authenticated browser observation using server environment credentials")
+	serve.Flags().BoolVar(&options.BrowserEnabled, "browser", false, "Enable authenticated browser observation (local admin/admin default; environment overrides)")
 	serve.Flags().BoolVar(&options.ContainerSource, "container-source", false, "Allow code lookup in running container core/Enterprise source roots")
 	cmd.AddCommand(serve)
+	cmd.AddCommand(newBrowserCommand(version))
 	return cmd
+}
+
+func browserCredentials(authenticate bool) (string, string) {
+	if !authenticate {
+		return "", ""
+	}
+	login, password := os.Getenv("ODOOCTL_MCP_BROWSER_LOGIN"), os.Getenv("ODOOCTL_MCP_BROWSER_PASSWORD")
+	if login == "" {
+		login = "admin"
+	}
+	if password == "" {
+		password = "admin"
+	}
+	return login, password
 }

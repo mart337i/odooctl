@@ -282,7 +282,7 @@ END $guard$;
 }
 
 type databaseQueryInput struct {
-	Query string `json:"query" jsonschema:"Restricted SELECT over explicit columns of one configured public table; no functions, joins, stars, comments, or transaction controls"`
+	Query string `json:"query" jsonschema:"SELECT explicit columns FROM one configured public table, optionally WHERE and ORDER BY. Do not include LIMIT, OFFSET, semicolons, functions, joins, stars, comments, or transaction controls. The server caps results at 200 rows."`
 }
 
 type databaseSchemaInput struct {
@@ -495,8 +495,48 @@ try:
         truncated = len(result) > limit
         result = result[:limit]
     elif p['operation'] == 'read_group':
-        result = model.read_group(a.get('domain') or [], fields, a['group_by'], offset=a.get('offset', 0), limit=limit + 1, orderby=a.get('order') or False, lazy=False)
-        truncated = len(result) > limit
+        from inspect import signature
+        public_group = getattr(model, 'read_group', None)
+        # Odoo 20 replaced the public fields API with the tuple/aggregates API.
+        if public_group is not None and 'fields' in signature(public_group).parameters:
+            result = public_group(a.get('domain') or [], fields, a['group_by'], offset=a.get('offset', 0), limit=limit + 1, orderby=a.get('order') or False, lazy=False)
+        else:
+            groups = a['group_by']
+            if len(set(groups)) != len(groups):
+                raise ValueError('duplicate group fields')
+            aggregates = {}
+            for spec in fields:
+                name, sep, aggregate = spec.partition(':')
+                if name in groups and not sep:
+                    continue
+                if name in groups or name in aggregates:
+                    raise ValueError('duplicate group or aggregate output key')
+                if not sep:
+                    aggregate = model._fields[name].aggregator
+                    if not aggregate:
+                        continue
+                if aggregate not in ('count', 'sum', 'min', 'max', 'avg', 'count_distinct'):
+                    raise ValueError('unsupported default aggregate')
+                aggregates[name] = name + ':' + aggregate
+            order = []
+            for part in a.get('order', '').split(','):
+                if not part.strip():
+                    continue
+                words = part.split()
+                if words[0] in aggregates:
+                    words[0] = aggregates[words[0]]
+                elif words[0] not in groups:
+                    raise ValueError('order must reference a group or requested aggregate')
+                order.append(' '.join(words))
+            rows = model._read_group(a.get('domain') or [], groups, list(aggregates.values()), offset=a.get('offset', 0), limit=limit + 1, order=', '.join(order) or None)
+            keys = groups + list(aggregates)
+            truncated = len(rows) > limit
+            result = []
+            for row in rows[:limit]:
+                if len(row) != len(keys):
+                    raise ValueError('unexpected group result shape')
+                result.append(dict(zip(keys, row)))
+        truncated = truncated or len(result) > limit
         result = result[:limit]
         for row in result:
             row.pop('__domain', None)
@@ -551,7 +591,7 @@ func (s *Server) databaseSQL(ctx context.Context, query string, columns []string
 }
 
 func (s *Server) registerDatabase(srv *mcp.Server) {
-	addTool(srv, "database_query", "Inspect a restricted SELECT using a DBA-provisioned dedicated read-only role. Requires SQLRole and SQLTables; no arbitrary functions or SQL.", func(ctx context.Context, in databaseQueryInput) (any, error) {
+	addTool(srv, "database_query", "Inspect a restricted SELECT using a DBA-provisioned dedicated read-only role. Explicit columns and one allowlisted table, optional WHERE/ORDER BY, server limit 200 rows. Do not add LIMIT, OFFSET, semicolons or functions.", func(ctx context.Context, in databaseQueryInput) (any, error) {
 		query, err := databaseValidateSQL(in.Query, s.options.SQLTables)
 		if err != nil {
 			return nil, err

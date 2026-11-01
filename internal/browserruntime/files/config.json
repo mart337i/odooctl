@@ -1,0 +1,15 @@
+{
+  "browser": {
+    "browserName": "chromium",
+    "contextOptions": {
+      "acceptDownloads": false
+    },
+    "launchOptions": {
+      "args": [
+        "--use-gl=angle",
+        "--use-angle=swiftshader",
+        "--enable-unsafe-swiftshader"
+      ]
+    }
+  }
+}

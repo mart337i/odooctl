@@ -224,6 +224,8 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 ORIGIN = "http://127.0.0.1:8069"
 EVENT_LIMIT = 100
 events = []
+pending_routes = set()
+last_activity = 0
 
 def same_origin(raw):
     try:
@@ -256,16 +258,23 @@ def event(kind, url="", text="", status=0):
 async def guard(route):
     # Playwright continue_ can follow redirects without routing again. Fetch
     # each hop without automatic redirects, then fulfill only the final response.
+    global last_activity
+    pending_routes.add(route)
+    last_activity = asyncio.get_running_loop().time()
     target = route.request.url
     response = None
     overrides = {}
     try:
+        # route.fetch otherwise reuses the original Cookie header even after a
+        # login redirect rotates the session. Let the shared, URL-scoped jar
+        # supply cookies independently for every guarded hop.
+        headers = {k: v for k, v in (await route.request.all_headers()).items() if k.lower() != "cookie"}
         for hop in range(10):
             if not same_origin(target):
                 event("blocked_off_origin", target)
                 await route.abort()
                 return
-            response = await route.fetch(url=target, max_redirects=0, timeout=15000, **overrides)
+            response = await route.fetch(url=target, headers=headers, max_redirects=0, timeout=15000, **overrides)
             if response.status in (301, 302, 303, 307, 308) and response.headers.get("location"):
                 target = urljoin(target, response.headers["location"])
                 if response.status == 303 or (response.status in (301, 302) and route.request.method == "POST"):
@@ -281,8 +290,12 @@ async def guard(route):
         event("request_failed", target, "request interception failed")
         await route.abort()
     finally:
-        if response is not None:
-            await response.dispose()
+        try:
+            if response is not None:
+                await response.dispose()
+        finally:
+            pending_routes.discard(route)
+            last_activity = asyncio.get_running_loop().time()
 
 async def verify_session(context):
     # APIRequestContext bypasses browser routing: use only this fixed endpoint,
@@ -320,18 +333,30 @@ async def wait_for_observation(page, path):
     target = urlsplit(path).path
     try:
         if target in ("/web", "/odoo") or target.startswith(("/web/", "/odoo/")):
-            # The body has o_web_client before OWL mounts. Require rendered
-            # navigation and meaningful report content, not just the empty shell.
+            # The navbar can mount before action RPCs finish. Require meaningful
+            # action content, then settle pending requests before text or pixels.
             await page.wait_for_function("""() => {
                 const nav = document.querySelector('.o_web_client .o_main_navbar');
                 if (!nav || !nav.getClientRects().length || getComputedStyle(nav).visibility === 'hidden') return false;
+                const action = document.querySelector('.o_web_client .o_action_manager');
+                if (!action || !action.getClientRects().length || getComputedStyle(action).visibility === 'hidden' || !(action.innerText.trim().length > 0)) return false;
                 const snapshot = (""" + DOM_SNAPSHOT + """)();
                 return snapshot.text.trim().length > 0 && snapshot.dom.length > 0;
             }""", timeout=8000)
-            return "web_client_visible", False
-        await page.wait_for_selector("body", state="visible", timeout=5000)
-        await asyncio.sleep(0.75)
-        return "body_visible_settled", False
+            readiness = "web_client_visible"
+        else:
+            await page.wait_for_selector("body", state="visible", timeout=5000)
+            readiness = "body_visible_settled"
+        # Chromium can leave worker-script requests pending for the worker's
+        # lifetime. Settle actual guarded fetch/fulfill work (including RPCs),
+        # rather than waiting for persistent workers to exit via networkidle.
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        while pending_routes or loop.time() - max(start, last_activity) < 0.5:
+            if loop.time() - start >= 8:
+                return "readiness_timeout", True
+            await asyncio.sleep(0.1)
+        return readiness, False
     except PlaywrightTimeoutError:
         return "readiness_timeout", True
 
@@ -355,6 +380,9 @@ async def main():
         context = await browser.new_context(viewport={"width": 1280, "height": 800}, service_workers="block", accept_downloads=False)
         context.set_default_timeout(15000)
         context.set_default_navigation_timeout(20000)
+        # Odoo feature-detects this property. Blocking registration while exposing
+        # it causes an artificial registration error; no worker is emulated.
+        await context.add_init_script("delete Navigator.prototype.serviceWorker;")
         await context.route("**/*", guard)
         await context.route_web_socket("**/*", lambda ws: ws.close())
         page = await context.new_page()
@@ -370,6 +398,9 @@ async def main():
         await page.locator('form button[type="submit"]').click()
         await page.wait_for_load_state("domcontentloaded")
         await verify_session(context)
+        # Login's redirect already boots a web client. Do not cancel its startup
+        # RPCs/assets by immediately navigating again after session verification.
+        await wait_for_observation(page, "/web")
         await navigate(page, settings["path"], "target_navigation")
         if not same_origin(page.url) or urlsplit(page.url).path == "/web/login" or await page.locator('input[type="password"]:visible').count():
             raise RuntimeError("authentication failed")
@@ -388,6 +419,9 @@ async def main():
             if len(image) > 2 * 1024 * 1024:
                 raise RuntimeError("screenshot exceeds limit")
             report["image"] = base64.b64encode(image).decode("ascii")
+        # Closing aborts in-flight work on incomplete pages. Those teardown
+        # callbacks are not observation failures; preserve all earlier events.
+        report["events"] = list(events)
         await context.close()
         await browser.close()
         print(json.dumps(report))

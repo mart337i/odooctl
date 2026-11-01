@@ -147,7 +147,10 @@ func TestBrowserScriptSafetyGuards(t *testing.T) {
 		`max_redirects=0, timeout=10000`,
 		`type(uid) is not int or uid <= 0`,
 		`document.querySelector('.o_web_client .o_main_navbar')`,
-		`return snapshot.text.trim().length > 0 && snapshot.dom.length > 0;`,
+		`action.innerText.trim().length > 0`,
+		`while pending_routes or loop.time() - max(start, last_activity) < 0.5:`,
+		`report["events"] = list(events)`,
+		`await context.add_init_script("delete Navigator.prototype.serviceWorker;")`,
 		`await page.evaluate(DOM_SNAPSHOT)`,
 		`return "readiness_timeout", True`,
 	} {
@@ -157,6 +160,9 @@ func TestBrowserScriptSafetyGuards(t *testing.T) {
 	}
 	if strings.Index(browserPython, "await verify_session(context)") > strings.Index(browserPython, `await navigate(page, settings["path"], "target_navigation")`) {
 		t.Fatal("public target can be reached before authenticated session verification")
+	}
+	if strings.Index(browserPython, `await wait_for_observation(page, "/web")`) > strings.Index(browserPython, `await navigate(page, settings["path"], "target_navigation")`) {
+		t.Fatal("target navigation cancels post-login startup requests")
 	}
 	for _, forbidden := range []string{"route.continue_()", "response.body(", "storage_state", "screenshot(path=", "/browser-artifacts", "settings[\"selector\"]", "settings[\"javascript\"]", ".input_value(", "innerHTML"} {
 		if strings.Contains(browserPython, forbidden) {
@@ -239,9 +245,33 @@ from urllib.parse import urlsplit, urlunsplit, urljoin
 source = sys.stdin.read()
 compile(source, '<browser>', 'exec')
 tree = ast.parse(source)
+# Execute the actual report/cleanup seam: genuine observation failures remain,
+# but closing a context must not mutate the report through its event-list alias.
+main = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == 'main')
+statements = main.body[0].body
+close_index = next(i for i, node in enumerate(statements) if isinstance(node, ast.Expr) and isinstance(node.value, ast.Await) and ast.unparse(node.value.value) == 'context.close()')
+freeze = statements[close_index-1:close_index]
+observed = [{'kind': 'request_failed', 'text': 'genuine failure'}]
+report = {'events': observed}
+class ClosingContext:
+    async def close(self):
+        observed.append({'kind': 'request_failed', 'text': 'shutdown abort'})
+cleanup = ast.parse('async def cleanup():\n    pass').body[0]
+cleanup.body = freeze + [statements[close_index]]
+cleanup_scope = {'report': report, 'events': observed, 'context': ClosingContext()}
+exec(compile(ast.Module(body=[cleanup], type_ignores=[]), '<freeze>', 'exec'), cleanup_scope)
+asyncio.run(cleanup_scope['cleanup']())
+assert len(report['events']) == 1 and report['events'][0]['text'] == 'genuine failure', 'shutdown mutated observation events'
+# Chromium's feature-detection surface must agree with the blocked-worker policy.
+policy = next((node.value.value.args[0].value for node in statements if isinstance(node, ast.Expr) and isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call) and isinstance(node.value.value.func, ast.Attribute) and node.value.value.func.attr == 'add_init_script'), None)
+assert policy, 'blocked service workers still advertised as available'
+node = shutil.which('node')
+if node:
+    subprocess.run([node, '-e', "global.Navigator = function() {}; Object.defineProperty(Navigator.prototype, 'serviceWorker', {configurable:true, value:{register(){throw Error('must not register')}}}); global.navigator = new Navigator(); " + policy + "; if (navigator.serviceWorker || 'serviceWorker' in navigator) throw Error('worker feature still advertised');"], check=True, capture_output=True, timeout=3)
 helpers = [node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name in ('same_origin', 'guard', 'verify_session', 'wait_for_observation', 'BrowserNavigationError', 'navigate')]
 helpers += [node for node in tree.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == 'DOM_SNAPSHOT' for target in node.targets)]
-scope = dict(urlsplit=urlsplit, urljoin=urljoin, event=lambda *args, **kwargs: None, ORIGIN='http://127.0.0.1:8069', PlaywrightTimeoutError=TimeoutError)
+recorded_events = []
+scope = dict(urlsplit=urlsplit, urljoin=urljoin, asyncio=asyncio, pending_routes=set(), last_activity=0, event=lambda *args, **kwargs: recorded_events.append(args), ORIGIN='http://127.0.0.1:8069', PlaywrightTimeoutError=TimeoutError)
 exec(compile(ast.Module(body=helpers, type_ignores=[]), '<guard>', 'exec'), scope)
 same_origin = scope['same_origin']
 assert same_origin('http://127.0.0.1:8069/web')
@@ -259,6 +289,8 @@ class Response:
 class Request:
     url = 'http://127.0.0.1:8069/web/login'
     method = 'POST'
+    async def all_headers(self):
+        return {'cookie': 'session_id=old-session', 'accept': 'text/html'}
 
 class Route:
     request = Request()
@@ -267,11 +299,21 @@ class Route:
         self.calls = []
         self.aborted = False
         self.fulfilled = False
+        self.cookie = 'old-session'
+        self.cookies_used = []
     async def fetch(self, **kwargs):
         assert same_origin(kwargs['url']), 'off-origin fetch attempted'
         assert kwargs['max_redirects'] == 0
+        # route.fetch otherwise replays the original Cookie header on every hop,
+        # overriding the context's freshly rotated, URL-scoped cookie jar.
+        assert kwargs['headers'] == {'accept': 'text/html'}, 'stale session replayed'
+        # Simulate the shared cookie jar updated by a login redirect response.
+        self.cookies_used.append(kwargs['headers'].get('cookie', self.cookie))
         self.calls.append(kwargs)
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        if response.status == 303:
+            self.cookie = 'rotated-session'
+        return response
     async def abort(self):
         self.aborted = True
     async def fulfill(self, **kwargs):
@@ -299,10 +341,11 @@ class SessionContext:
         return self.response
 
 class ReadyPage:
-    def __init__(self, timeout=False, states=None):
+    def __init__(self, timeout=False, states=None, pending=False):
         self.timeout = timeout
+        scope['pending_routes'] = {'pending RPC'} if pending else set()
         self.calls = []
-        self.states = states or [dict(nav=True, text='Rendered navigation', controls=True)]
+        self.states = states or [dict(nav=True, text='Rendered action', controls=True, action=True)]
         self.polls = []
     async def wait_for_selector(self, selector, **kwargs):
         self.calls.append((selector, kwargs))
@@ -311,7 +354,7 @@ class ReadyPage:
     async def wait_for_function(self, expression, **kwargs):
         assert kwargs == {'timeout': 8000}
         assert "document.querySelector('.o_web_client .o_main_navbar')" in expression
-        assert 'snapshot.text.trim().length > 0 && snapshot.dom.length > 0' in expression
+        assert 'action.innerText.trim().length > 0' in expression
         self.calls.append(('web_client_predicate', kwargs))
         if self.timeout:
             raise TimeoutError()
@@ -327,7 +370,10 @@ global.getComputedStyle = e => ({visibility: e.hidden ? 'hidden' : 'visible'});
 global.NodeFilter = {SHOW_TEXT: 4};
 global.document = {
     body: element,
-    querySelector: () => fixture.nav ? {getClientRects: () => [1], hidden: fixture.hidden} : null,
+    querySelector: selector => {
+        const present = selector.includes('o_action_manager') ? fixture.action : fixture.nav;
+        return present ? {getClientRects: () => [1], hidden: fixture.hidden, innerText: fixture.text} : null;
+    },
     querySelectorAll: () => fixture.controls ? [{...element, tagName: 'BUTTON', innerText: fixture.text}] : [],
     createTreeWalker: () => {
         let visited = false;
@@ -344,7 +390,7 @@ console.log(JSON.stringify(payload.states.map(state => {fixture = state; return 
             completed = subprocess.run([node, '-e', program], input=json.dumps(dict(expression=expression, states=self.states)), text=True, capture_output=True, timeout=3, check=True)
             results = json.loads(completed.stdout)
         else:
-            results = [bool(state['nav'] and not state.get('hidden') and state['text'].strip() and state['controls']) for state in self.states]
+            results = [bool(state['nav'] and state.get('action') and not state.get('hidden') and state['text'].strip() and state['controls']) for state in self.states]
         for ready in results:
             self.polls.append(ready)
             if ready:
@@ -353,9 +399,13 @@ console.log(JSON.stringify(payload.states.map(state => {fixture = state; return 
 
 class Clock:
     def __init__(self):
-        self.delays = []
+        self.now = 0
+    def get_running_loop(self):
+        return self
+    def time(self):
+        return self.now
     async def sleep(self, seconds):
-        self.delays.append(seconds)
+        self.now += seconds
 
 class NavigationPage:
     def __init__(self, status=200, timeout=False):
@@ -394,6 +444,18 @@ async def test():
     await scope['guard'](route)
     assert route.fulfilled and not route.aborted and len(route.calls) == 2
     assert route.calls[1]['method'] == 'GET' and route.calls[1]['post_data'] == ''
+    route = Route([Response(303, '/web'), Response(200)])
+    await scope['guard'](route)
+    assert route.fulfilled and route.cookies_used == ['old-session', 'rotated-session']
+    assert not scope['pending_routes'], 'completed redirect still counted as pending'
+    class FailedRoute(Route):
+        async def fetch(self, **kwargs):
+            raise RuntimeError('private failure detail must not escape')
+    recorded_events.clear()
+    route = FailedRoute([])
+    await scope['guard'](route)
+    assert route.aborted and not scope['pending_routes']
+    assert recorded_events == [('request_failed', route.request.url, 'request interception failed')], 'genuine failure lost or leaked'
     route = Route([Response(307, '/web'), Response(302, 'https://evil.example/')])
     await scope['guard'](route)
     assert route.aborted and len(route.calls) == 2 and 'method' not in route.calls[1]
@@ -423,6 +485,7 @@ async def test():
         assert await scope['verify_session'](SessionContext(response)) is None
         assert response.disposed
     scope['asyncio'] = Clock()
+    scope['last_activity'] = 0
     for path in ['/web', '/web?debug=1', '/odoo', '/odoo/apps']:
         page = ReadyPage()
         assert await scope['wait_for_observation'](page, path) == ('web_client_visible', False)
@@ -432,18 +495,22 @@ async def test():
     hidden_nav = dict(nav=True, text='Navigation', controls=True, hidden=True)
     text_only = dict(nav=True, text='Loading', controls=False)
     controls_only = dict(nav=True, text='   ', controls=True)
-    rendered = dict(nav=True, text='Rendered navigation', controls=True)
-    page = ReadyPage(states=[empty_shell, empty_nav, hidden_nav, text_only, controls_only, rendered])
+    navbar_only = dict(nav=True, text='My Company', controls=True)
+    rendered = dict(nav=True, text='Rendered action', controls=True, action=True)
+    page = ReadyPage(states=[empty_shell, empty_nav, hidden_nav, text_only, controls_only, navbar_only, rendered])
     assert await scope['wait_for_observation'](page, '/web') == ('web_client_visible', False)
-    assert page.polls == [False, False, False, False, False, True]
-    for shell in [empty_shell, empty_nav, text_only, controls_only]:
+    assert page.polls == [False, False, False, False, False, False, True]
+    for shell in [empty_shell, empty_nav, text_only, controls_only, navbar_only]:
         page = ReadyPage(states=[shell])
         assert await scope['wait_for_observation'](page, '/web') == ('readiness_timeout', True)
         assert page.polls == [False]
+    for path in ['/web', '/public']:
+        start = scope['asyncio'].time()
+        assert await scope['wait_for_observation'](ReadyPage(pending=True), path) == ('readiness_timeout', True)
+        assert 8 <= scope['asyncio'].time() - start < 8.2, 'pending RPC wait is unbounded'
     page = ReadyPage()
     assert await scope['wait_for_observation'](page, '/public') == ('body_visible_settled', False)
     assert page.calls == [('body', {'state': 'visible', 'timeout': 5000})]
-    assert scope['asyncio'].delays == [0.75]
     for path in ['/web', '/public']:
         assert await scope['wait_for_observation'](ReadyPage(timeout=True), path) == ('readiness_timeout', True)
 asyncio.run(test())

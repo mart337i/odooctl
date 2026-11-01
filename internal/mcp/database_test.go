@@ -337,13 +337,13 @@ class Cursor:
         self.events.append('fetchone')
         return ['on' if self.read_only and self.report == 'on' else 'off']
 class Field:
-    def __init__(self, store=True, kind='char'): self.store=store; self.type=kind
+    def __init__(self, store=True, kind='char', aggregator=None): self.store=store; self.type=kind; self.aggregator=aggregator
 class Model:
-    _fields={'id':Field(kind='integer'),'name':Field(),'password':Field(),'computed':Field(False),'blob':Field(kind='binary'),'relation':Field(kind='many2one')}
+    _fields={'id':Field(kind='integer'),'name':Field(),'password':Field(),'computed':Field(False),'blob':Field(kind='binary'),'relation':Field(kind='many2one'),'amount':Field(kind='float',aggregator='sum'),'unsafe':Field(kind='integer',aggregator='recordset'),'restricted':Field()}
     def check_access(self, op): assert op == 'read'
-    def fields_get(self, fields, attributes): return {n:{'type':self._fields[n].type} for n in fields}
+    def fields_get(self, fields, attributes): return {n:{'type':self._fields[n].type} for n in fields if n != 'restricted'}
     def search_read(self, domain, fields, offset, limit, order):
-        assert fields == ['id', 'name'] and limit == 201 and order == 'id'
+        assert set(fields) == {'id', 'name', 'amount', 'unsafe'} and limit == 201 and order == 'id'
         if fail: raise ValueError('custom read failed')
         return [{'id':i} for i in range(limit)]
     def read_group(self, domain, fields, groupby, offset, limit, orderby, lazy):
@@ -403,10 +403,90 @@ for operation in ['model_info','read_group']:
     assert cr.events[-1] == 'rollback'
     assert result['provenance']['read_only'] is True
     if operation == 'model_info':
-        assert set(result['data']) == {'id','name'} and result['truncated'] is False
+        assert set(result['data']) == {'id','name','amount','unsafe'} and result['truncated'] is False
     else:
         assert len(result['data']) == 200 and result['truncated'] is True
         assert all(set(row) == {'id'} for row in result['data'])
+# Odoo 20 has a new public signature; also cover models without that method.
+def modern_read_group(self, domain, groupby=(), aggregates=(), **kwargs):
+    raise AssertionError('new public API must not receive legacy arguments')
+def tuple_read_group(self, domain, groupby, aggregates, offset, limit, order):
+    assert domain == [['id','>',0]] and offset == 3 and limit == 3
+    assert groupby == ['name','id'] and aggregates == expected_aggregates
+    assert order == expected_order
+    calls.append(True)
+    return [('group',i,*([10]*len(aggregates))) for i in range(row_count)]
+Model._read_group=tuple_read_group
+for public in [None,modern_read_group]:
+    if public is None: del Model.read_group
+    else: Model.read_group=public
+    cases=[
+        (['name','id','amount'], 'amount desc, name asc', ['amount:sum'], 'amount:sum desc, name asc', False),
+        (['name','id'], 'name', [], 'name', False),
+        (['amount:sum'], '', ['amount:sum'], None, False),
+        (['amount:avg'], '', ['amount:avg'], None, False),
+        (['amount:count_distinct'], '', ['amount:count_distinct'], None, False),
+        (['amount:min'], '', ['amount:min'], None, False),
+        (['amount:max'], '', ['amount:max'], None, False),
+        (['amount:count'], '', ['amount:count'], None, False),
+        (['amount:sum','amount:avg'], '', [], None, True),
+        (['id:count'], '', [], None, True),
+        (['amount'], 'unsafe desc', [], None, True),
+        (['unsafe'], '', [], None, True),
+        (['relation:count'], '', [], None, True),
+        (['password:count'], '', [], None, True),
+        (['computed:count'], '', [], None, True),
+        (['restricted:count'], '', [], None, True),
+    ]
+    for fields,order,expected_aggregates,expected_order,expected_error in cases:
+        for row_count in [0,2,3]:
+            calls=[]; cr=Cursor(); ns={'env':types.SimpleNamespace(cr=cr,clear=lambda:None)}
+            exec(preamble,ns)
+            ns['p']['operation']='read_group'
+            ns['p']['input'].update(fields=fields,group_by=['name','id'],domain=[['id','>',0]],offset=3,limit=2,order=order)
+            output=io.StringIO(); caught=False
+            with contextlib.redirect_stdout(output):
+                try: exec(body,ns)
+                except ValueError: caught=True
+            assert caught == expected_error, (fields,order,output.getvalue())
+            assert cr.events[-1] == 'rollback' and cr.events.count('rollback') == 2
+            if expected_error:
+                assert not calls and not output.getvalue()
+            else:
+                result=json.loads(output.getvalue().split('=',1)[1])
+                assert len(result['data']) == min(row_count,2) and result['truncated'] == (row_count>2)
+                assert result['provenance']['read_only'] is True and result['provenance']['user_id'] == 7
+                assert result['provenance']['company_ids'] == [2,3]
+                assert all(row == dict({'name':'group','id':i}, **{spec.split(':')[0]:10 for spec in expected_aggregates}) for i,row in enumerate(result['data']))
+# Count keeps the shipped base-field key, not the aggregate expression.
+def count_read_group(self, domain, groupby, aggregates, offset, limit, order):
+    assert groupby == ['name'] and aggregates == ['id:count']
+    assert offset == 3 and limit == 3 and order == 'id:count desc'
+    return [('group',10)] if not malformed else [('group',10,20)]
+Model._read_group=count_read_group
+for malformed in [False,True]:
+    cr=Cursor(); ns={'env':types.SimpleNamespace(cr=cr,clear=lambda:None)}
+    exec(preamble,ns)
+    ns['p']['operation']='read_group'
+    ns['p']['input'].update(fields=['name','id:count'],group_by=['name'],offset=3,limit=2,order='id desc')
+    output=io.StringIO(); caught=False
+    with contextlib.redirect_stdout(output):
+        try: exec(body,ns)
+        except ValueError: caught=True
+    assert caught == malformed and cr.events[-1] == 'rollback'
+    if malformed: assert not output.getvalue()
+    else:
+        result=json.loads(output.getvalue().split('=',1)[1])
+        assert result['data'] == [{'name':'group','id':10}] and result['truncated'] is False
+Model._read_group=tuple_read_group
+expected_aggregates=['amount:sum']; expected_order=None; row_count=2
+ns['p']['input'].update(fields=['amount'],group_by=['name','id','id'])
+output=io.StringIO()
+with contextlib.redirect_stdout(output):
+    try: exec(body,ns)
+    except ValueError: pass
+    else: raise AssertionError('duplicate groups accepted')
+assert not output.getvalue() and cr.events[-1] == 'rollback'
 `
 	script, err := databaseORMScript(databaseORMInput{Model: "res.partner"}, "search_read", databaseTestOptions())
 	if err != nil {

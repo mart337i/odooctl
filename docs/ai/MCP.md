@@ -5,6 +5,14 @@ MCP stdio. The client launches the process; stdout is reserved for protocol
 messages and diagnostics go to stderr. There is no HTTP listener, remote MCP
 endpoint, or MCP authentication service.
 
+odooctl does not call an LLM provider. Your MCP client controls model access and
+what tool results it transmits. For the ordinary CLI workflow and its different
+side effects, see [Using odooctl With AI](USING_ODOOCTL_WITH_AI.md) and
+[Debugging Workflows](DEBUGGING_WORKFLOWS.md).
+
+See the [Odoo 17-20 agent usage matrix](MCP_VERSION_MATRIX.md) for the identical
+subagent task, first-round failures, fixes, final results, and evidence audit.
+
 ```bash
 odooctl mcp serve --project /absolute/path/to/odoo-addons
 ```
@@ -16,6 +24,10 @@ the server after changing its project, environment, or capability options.
 An existing project link selects the environment. Without a link, passive
 fallback discovery rejects multiple matching environments instead of guessing;
 repair/select the intended link through the ordinary CLI before starting MCP.
+Unlike this passive lookup, CLI doctor/AI context runs an active bind probe
+(temporary project marker and ephemeral container, possibly an image pull), and
+CLI state loading can repair links/remove obsolete markers. JSON output does not
+make the ordinary CLI read-only or give it MCP transaction guards.
 
 ## Default Tools
 
@@ -37,6 +49,14 @@ Status queries Compose without starting services. Logs are finite, default to
 Log text is capped at 128 KiB; there is no follow mode. These tools need working
 Docker/Compose access when called, but not during passive startup discovery.
 
+In `project_context`, the environment object is named `environment`, not `env`.
+Its current fields are `name`, `branch`, `odoo_version`, `database`, `web_url`,
+and `browser_runtime_enabled`; capabilities and `source_roots` are separate
+top-level fields. Use the connected binary's tool schemas and actual reports,
+not guessed release fields. The version selector includes 20.0, defaults to
+19.0, and supports 12.0-20.0; live evidence here covers Community 17-20 fixtures,
+not every supported version, Enterprise deployment, or custom addon.
+
 ## Capability Options
 
 | Option | Default and requirement |
@@ -47,7 +67,7 @@ Docker/Compose access when called, but not during passive startup discovery.
 | `--odoo-user-id UID` | Disabled; explicit active, non-superuser Odoo user ID greater than 1. Requires `--models`. |
 | `--models MODELS` | Disabled; comma-separated allowlist of 1 to 50 technical model names. |
 | `--company-ids IDS` | User's main company by default; comma-separated positive company IDs, at most 50. Used with ORM. |
-| `--browser` | Disabled; requires both server environment credentials below. |
+| `--browser` | Disabled; uses local development login `admin` / `admin`, with optional environment overrides below. |
 | `--container-source` | Disabled; adds core and Enterprise source lookup in the running Odoo container. |
 
 SQL, ORM, browser, and container source require an existing odooctl environment.
@@ -84,8 +104,9 @@ command **array** containing the executable and arguments:
 }
 ```
 
-OpenCode uses `environment` for server environment overrides. For an explicitly
-browser-enabled entry, append `"--browser"` to the command array and add:
+For browser inspection, append `"--browser"` to the command array. The default
+`admin` / `admin` account needs no credential configuration. OpenCode uses
+`environment` for optional non-default credentials:
 
 ```json
 {
@@ -96,9 +117,9 @@ browser-enabled entry, append `"--browser"` to the command array and add:
 }
 ```
 
-Supply those variables securely in the environment used to launch the client;
-do not put actual credentials in version-controlled configuration. Check the
-connection with `opencode mcp list`.
+When overriding the defaults, supply those variables securely in the environment
+used to launch the client; do not put actual credentials in version-controlled
+configuration. Check the connection with `opencode mcp list`.
 
 ### Claude Code
 
@@ -129,8 +150,9 @@ The `--` separates Claude Code options from the server command. Review and
 approve project-scoped configurations when prompted. Check with
 `claude mcp list` or `/mcp` inside Claude Code.
 
-For browser opt-in, append `"--browser"` to `args` and add an `env` object to
-the server entry. Claude Code's interpolation syntax differs from OpenCode's:
+For browser opt-in, append `"--browser"` to `args`. Defaults need no credential
+configuration. For overrides, add an `env` object to the server entry. Claude
+Code's interpolation syntax differs from OpenCode's:
 
 ```json
 {
@@ -141,8 +163,9 @@ the server entry. Claude Code's interpolation syntax differs from OpenCode's:
 }
 ```
 
-Both variables must be set before launching the client. No password CLI flag
-or agent-supplied credential tool argument is supported.
+Each nonempty variable independently overrides its default; an unset or empty
+variable uses `admin`. No password CLI flag or agent-supplied credential tool
+argument is supported.
 
 ## SQL Inspection
 
@@ -157,8 +180,9 @@ Role and table names must be lowercase PostgreSQL identifiers. Application or
 privileged role names such as `odoo`, `postgres`, and `pg_*` are rejected. The
 server checks that the connected role is not superuser, cannot create roles or
 databases, cannot replicate, cannot bypass RLS, and is the session login role.
-Inherited privileged/application roles and effective ownership of any
-allowlisted table are also rejected, because owners can bypass ordinary RLS.
+Effective membership in superuser/BYPASSRLS roles or the `odoo`/`postgres` roles,
+and effective ownership of any allowlisted table, are also rejected because
+owners can bypass ordinary RLS. These checks are not a complete grant audit.
 It also requires ordinary `public` tables and supported built-in scalar
 columns; views, generated columns, and user-defined column types are excluded.
 Sensitive-looking table and column names are rejected even if grants allow
@@ -245,12 +269,16 @@ necessary, revoke grants from `PUBLIC` and explicitly regrant them to the
 appropriate application roles, after assessing the impact on the application.
 Read-only transactions block database writes but do **not** sandbox functions,
 RLS policy code, or other code with external side effects.
+These controls belong to MCP SQL inspection, not ordinary `docker sql` (which
+uses the application role), `odoo eval`, or shell commands. Approve explicit
+database writes separately; a SELECT/JSON label is not a transaction guard.
 
 SQL inspection executes `psql -X --no-password -U odooctl_inspect` **inside the
 `db` container**, without a host argument, using container-local authentication.
-The generated `postgres:15` environment typically has local socket `trust`
-authentication initialized by the image; inspect the actual `pg_hba.conf` of
-your existing volume rather than assuming it does. A working, noninteractive
+The generated PostgreSQL environment (15 for Odoo 12-19, 16 for Odoo 20)
+typically has local socket `trust` authentication initialized by the image;
+inspect the actual `pg_hba.conf` of your existing volume rather than assuming it
+does. A working, noninteractive
 `psql --no-password` login as this role is a prerequisite. There is **no SQL
 password input supported** by MCP: no password flag, tool argument, or MCP SQL
 password environment variable. If local authentication requires a password or
@@ -310,6 +338,9 @@ Ordering uses stored field names with optional lowercase `asc`/`desc`.
 are `sum`, `avg`, `min`, `max`, `count`, and `count_distinct`. Defaults and bounds
 include 200 results, 64 fields/domain nodes, four grouping fields, and an offset
 of at most 10000. Internal group domain/context/range metadata is removed.
+Odoo 20's tuple/aggregate grouping API is normalized into dictionaries with
+group keys and aggregation base-field keys, such as `id:count` returning `id`.
+Duplicate output keys and unsupported default aggregates are rejected.
 
 Each call runs a fresh Odoo shell, rolls back its initial transaction, begins a
 driver-managed transaction with `SET TRANSACTION READ ONLY`, verifies
@@ -379,6 +410,8 @@ files and disallowed extensions (including `.go`) are not exposed. All source
 file/directory symlinks beneath an approved root are denied. Host reads use
 guarded root-relative handles; container reads use descriptor-relative opens
 with no-follow flags. Module manifests are parsed from the safely read bytes.
+The current `internal/mcp/source.go` allowlist is authoritative; do not infer
+support for an extension from the repository's implementation language.
 
 Container source is separately opt-in:
 
@@ -394,11 +427,24 @@ example, read `odoo/models.py` from `odoo-core` with a bounded line range.
 
 ## Browser Observation
 
-Browser tools require explicit `--browser` plus these server environment
-variables:
+For the separate `odooctl mcp browser` mode using the official
+Playwright MCP backend and an approved-origin proxy, see the
+[Playwright MCP guide](PLAYWRIGHT_MCP.md). Its explicit setup, tool allowlist,
+unmasked screenshots, and verification limits differ from the strict
+`mcp serve --browser` mode described below. The advanced mode has separate local
+Community 17-20 verification, not an installed-release availability guarantee;
+the prior strict-mode version matrix does not verify it.
+
+Browser tools require explicit `--browser`. This MCP command defaults to username
+`admin` and password `admin` for local development. Optional server environment
+overrides are:
 
 - `ODOOCTL_MCP_BROWSER_LOGIN`
 - `ODOOCTL_MCP_BROWSER_PASSWORD`
+
+Unset or empty variables use the defaults independently. Failed authentication
+returns an error; it never changes account passwords or tries another credential
+pair. These defaults are intended only for local development, not production.
 
 Use a dedicated, least-privileged Odoo account. The existing environment must
 have Playwright Chromium enabled in its image, support **Odoo 15.0+**, and have
@@ -408,6 +454,10 @@ action, not something MCP performs automatically.
 Playwright runs in `/opt/odoo-browser-venv`, separate from Odoo's Python
 environment, to avoid incompatible dependency pins such as `greenlet`.
 Images built before this isolation change must be rebuilt.
+This is not the separately prepared Node/Chromium/Squid runtime used by
+`mcp browser`. Ordinary `odooctl browser` page commands use optional `--login`
+and `--password` flags and do not inherit the MCP account defaults or request
+policy; see [Browser](../BROWSER.md).
 
 `browser_inspect` returns bounded visible text, a DOM summary, and diagnostic
 events. `browser_screenshot` returns an in-memory PNG at a fixed 1280x800
@@ -427,9 +477,9 @@ selectors, clicks, form filling, response bodies, or headers are exposed.
 The only controlled interaction is the fixed login sequence.
 Authentication is positively checked before navigating to the requested page.
 Reports include bounded readiness checks and an `incomplete` flag when rendered
-web-client navigation and meaningful content, or a public page body, do not
-become visible in time. An empty `.o_web_client` wrapper is not considered
-ready. These checks do not prove
+web-client navigation and action content, or a public page body, do not become
+visible in time or guarded requests do not settle. A navbar-only shell is not
+considered ready. These checks do not prove
 that all asynchronous page activity has finished.
 
 **Browser observation is not strictly read-only.** Authentication creates an
@@ -494,8 +544,8 @@ does not start services or provision permissions.
 
 The runtime integration suite exercises SQL, ORM, authenticated page inspection,
 and native screenshots through MCP. Prepare the restricted role, Odoo user,
-company ID `1`, and browser image first; browser credentials must already be
-set in `ODOOCTL_MCP_BROWSER_LOGIN` and `ODOOCTL_MCP_BROWSER_PASSWORD`:
+company ID `1`, and browser image first; the CLI uses `admin` / `admin` unless
+browser credentials are overridden through the server environment:
 
 ```bash
 ODOOCTL_MCP_TEST_PROJECT=/absolute/path/to/odoo-addons \
@@ -541,7 +591,7 @@ archives satisfy the new dependency. Binary release builds remain enabled.
 - SQL subprocess failure: have the DBA verify container-local `psql --no-password` authentication, column grants, role attributes, and the running `db` service. Do not fall back to the application role.
 - ORM denial: check the active UID, model allowlist, company membership, read ACLs/record rules, and stored scalar field eligibility.
 - Source denial: check the root ID, extension, secret-ish path components, absence of symlinks, and file size.
-- Browser failure: check `--browser`, both credential variables, Odoo 15.0+, image Playwright support, and running Odoo. MCP does not rebuild or start it.
+- Browser failure: check `--browser`, the local default account or environment overrides, Odoo 15.0+, image Playwright support, and running Odoo. MCP does not rebuild or start it.
 
 Client syntax references: [OpenCode MCP servers](https://opencode.ai/docs/mcp-servers/)
 and [Claude Code MCP](https://code.claude.com/docs/en/mcp).
