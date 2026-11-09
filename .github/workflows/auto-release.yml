@@ -169,6 +169,7 @@ jobs:
           GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         run: |
           dpkg-buildpackage -S -sa \
+            --sign-backend=gpg \
             -k"${GPG_KEY_ID}" \
             -p/tmp/gpg-sign.sh
 
