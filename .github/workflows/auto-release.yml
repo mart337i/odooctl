@@ -31,6 +31,8 @@ jobs:
 
       - name: Determine version bump
         id: bump
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           # Get the latest tag (normalize: strip leading v/V)
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -44,7 +46,6 @@ jobs:
           MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
 
           # Bump type from commit message: [major], [minor], or default patch
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
           if echo "$COMMIT_MSG" | grep -qi '\[major\]'; then
             MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
           elif echo "$COMMIT_MSG" | grep -qi '\[minor\]'; then
