@@ -24,6 +24,7 @@ type Data struct {
 	OdooCommit             string
 	EnterpriseCommit       string
 	BaseImage              string
+	PostgresImage          string
 	VersionSuffix          string
 	DBName                 string
 	ProjectRoot            string
@@ -37,6 +38,7 @@ type Data struct {
 	ServerWideModules      string
 	Workers                string
 	MaxCronThreads         string
+	HTTPInterface          string
 	ConfigOptions          []ConfigOption
 	Environment            []EnvironmentVariable
 	Ports                  config.Ports
@@ -73,6 +75,10 @@ func NewData(state *config.State) Data {
 	dbName := "odoo-" + versionSuffix
 	environmentName := config.SanitizeName(strings.ToLower(fmt.Sprintf("%s-%s-%s", state.ProjectName, state.Branch, versionSuffix)))
 	baseImage := "ubuntu:noble"
+	postgresImage := "postgres:15"
+	if state.OdooVersion == "20.0" {
+		postgresImage = "postgres:16"
+	}
 	debugpyVersion := "1.8.14"
 	ipythonVersion := "8.27.0"
 	if state.OdooVersion == "12.0" || state.OdooVersion == "13.0" {
@@ -102,7 +108,7 @@ func NewData(state *config.State) Data {
 	serverWideModules := []string{"base", "web"}
 	serverWideModules = append(serverWideModules, state.ServerWideModules...)
 	serverWideModules = uniqueStrings(serverWideModules)
-	configOptions := configOptions(state.OdooConfig, "workers", "max_cron_threads", "server_wide_modules")
+	configOptions := configOptions(state.OdooConfig, "workers", "max_cron_threads", "server_wide_modules", "http_interface")
 
 	return Data{
 		ProjectName:            state.ProjectName,
@@ -111,6 +117,7 @@ func NewData(state *config.State) Data {
 		OdooCommit:             state.OdooCommit,
 		EnterpriseCommit:       state.EnterpriseCommit,
 		BaseImage:              baseImage,
+		PostgresImage:          postgresImage,
 		VersionSuffix:          versionSuffix,
 		DBName:                 dbName,
 		ProjectRoot:            state.ProjectRoot,
@@ -124,6 +131,7 @@ func NewData(state *config.State) Data {
 		ServerWideModules:      strings.Join(serverWideModules, ","),
 		Workers:                configValue(state.OdooConfig, "workers", "0"),
 		MaxCronThreads:         configValue(state.OdooConfig, "max_cron_threads", "0"),
+		HTTPInterface:          configValue(state.OdooConfig, "http_interface", "0.0.0.0"),
 		ConfigOptions:          configOptions,
 		Environment:            environmentVariables(state.Environment),
 		Ports:                  state.Ports,

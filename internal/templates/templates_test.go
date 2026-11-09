@@ -10,7 +10,7 @@ import (
 )
 
 func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
-	versions := []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0"}
+	versions := []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0", "20.0"}
 
 	for _, version := range versions {
 		t.Run(version, func(t *testing.T) {
@@ -76,6 +76,16 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 				t.Fatalf("ReadFile(docker-compose.yml) error = %v", err)
 			}
 			compose := string(composeContent)
+			postgresImage := "postgres:15"
+			if version == "20.0" {
+				postgresImage = "postgres:16"
+			}
+			if got := NewData(state).PostgresImage; got != postgresImage {
+				t.Fatalf("NewData().PostgresImage = %q, want %q", got, postgresImage)
+			}
+			if !strings.Contains(compose, "  db:\n    image: "+postgresImage+"\n") {
+				t.Fatalf("docker-compose.yml must use database image %q", postgresImage)
+			}
 			for _, required := range []string{
 				"PYTHONPATH: /opt/odoo-extra-python",
 				"name: test-project-" + strings.Replace(version, ".", "", 1),
@@ -86,6 +96,55 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 				if !strings.Contains(compose, required) {
 					t.Fatalf("docker-compose.yml missing runtime dependency pattern %q", required)
 				}
+			}
+		})
+	}
+}
+
+func TestRenderHTTPInterface(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config map[string]string
+		want   string
+	}{
+		{name: "default", want: "0.0.0.0"},
+		{name: "override", config: map[string]string{"http_interface": "127.0.0.1"}, want: "127.0.0.1"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			state := &config.State{
+				ProjectName: "http-project",
+				OdooVersion: "20.0",
+				Branch:      "20.0",
+				ProjectRoot: home,
+				OdooConfig:  test.config,
+			}
+
+			data := NewData(state)
+			if data.HTTPInterface != test.want {
+				t.Fatalf("NewData().HTTPInterface = %q, want %q", data.HTTPInterface, test.want)
+			}
+			for _, option := range data.ConfigOptions {
+				if option.Key == "http_interface" {
+					t.Fatal("ConfigOptions must not duplicate http_interface")
+				}
+			}
+
+			if err := Render(state); err != nil {
+				t.Fatal(err)
+			}
+			envDir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(filepath.Join(envDir, "odoo.conf"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			conf := string(content)
+			if strings.Count(conf, "http_interface = ") != 1 || !strings.Contains(conf, "\nhttp_interface = "+test.want+"\n") {
+				t.Fatalf("odoo.conf must contain exactly one http_interface = %s", test.want)
 			}
 		})
 	}
@@ -156,6 +215,7 @@ func TestRenderLegacyGeventConstraint(t *testing.T) {
 		{version: "16.0", wantConstraint: true},
 		{version: "17.0", wantConstraint: true},
 		{version: "18.0", wantConstraint: false},
+		{version: "20.0", wantConstraint: false},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			home := t.TempDir()

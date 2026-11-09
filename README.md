@@ -2,7 +2,7 @@
 
 A CLI tool for managing Odoo Docker development environments. Written in Go for cross-platform support (Linux, macOS, Windows).
 
-**Supported Odoo Versions:** 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0  
+**Supported Odoo Versions:** 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
 **Enterprise Support:** Yes (via `--enterprise` flag)
 
 ## Table of Contents
@@ -685,8 +685,12 @@ Ports are calculated from Odoo version: `8000 + (version * 100)`
 | 17.0    | 9700      | 9725    | 5778  |
 | 18.0    | 9800      | 9825    | 5878  |
 | 19.0    | 9900      | 9925    | 5978  |
+| 20.0    | 10000     | 10025   | 7078  |
 
 If ports conflict, odooctl automatically finds available ports and regenerates configs.
+
+Odoo 20 environments use PostgreSQL 16; Odoo 12.0 through 19.0 use PostgreSQL 15.
+Regenerating an environment does not migrate an existing PostgreSQL data volume.
 
 ### Version-Aware Module Scaffolding
 
