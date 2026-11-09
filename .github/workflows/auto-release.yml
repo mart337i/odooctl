@@ -102,7 +102,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distro: [jammy, noble]
+        distro: [jammy, noble, resolute]
     runs-on: ubuntu-latest
 
     steps:
@@ -137,7 +137,7 @@ jobs:
           DEB_VERSION="${UPSTREAM_VERSION}+${DISTRO}1"
           DATE=$(date -R)
           # Native source packages use odooctl_${version}.tar.xz. Include the
-          # Ubuntu series in the version so jammy and noble uploads do not
+          # Ubuntu series in the version so jammy, noble, and resolute uploads do not
           # collide in Launchpad with different tarball contents.
           # Debian changelog format is strict about whitespace.
           printf 'odooctl (%s) %s; urgency=medium\n\n  * Release %s\n\n -- mart337i <%s>  %s\n' \
