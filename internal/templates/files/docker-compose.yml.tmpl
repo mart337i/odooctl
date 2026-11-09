@@ -57,7 +57,7 @@ x-odoo-common: &odoo-common
 
 services:
   db:
-    image: {{.PostgresImage}}
+    image: postgres:15
     environment:
       POSTGRES_DB: {{.DBName}}
       POSTGRES_USER: odoo

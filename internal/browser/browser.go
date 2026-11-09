@@ -16,7 +16,6 @@ const ProviderPlaywrightChromium = "playwright-chromium"
 const ContainerArtifactsDir = "/browser-artifacts"
 const ChromeBin = "/usr/local/bin/chromium"
 const PlaywrightBrowsersPath = "/opt/ms-playwright"
-const PythonExecutable = "/opt/odoo-browser-venv/bin/python3"
 
 type Info struct {
 	Enabled                bool   `json:"enabled"`
@@ -123,14 +122,14 @@ func CheckRuntime(state *config.State) RuntimeCheck {
 }
 
 func RunPythonScript(state *config.State, script string) (string, error) {
-	cmd := dockerlib.ComposeCommand(state, "exec", "-T", "odoo", PythonExecutable, "-")
+	cmd := dockerlib.ComposeCommand(state, "exec", "-T", "odoo", "/opt/odoo-venv/bin/python3", "-")
 	cmd.Stdin = strings.NewReader(script)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
 
 func RunPythonScriptOneOff(state *config.State, script string) (string, error) {
-	cmd := dockerlib.ComposeCommand(state, "run", "--rm", "--no-deps", "odoo", PythonExecutable, "-")
+	cmd := dockerlib.ComposeCommand(state, "run", "--rm", "--no-deps", "odoo", "/opt/odoo-venv/bin/python3", "-")
 	cmd.Stdin = strings.NewReader(script)
 	output, err := cmd.CombinedOutput()
 	return string(output), err

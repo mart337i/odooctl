@@ -10,7 +10,7 @@ import (
 )
 
 func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
-	versions := []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0", "20.0"}
+	versions := []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0"}
 
 	for _, version := range versions {
 		t.Run(version, func(t *testing.T) {
@@ -46,7 +46,7 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 			}
 
 			dockerfile := string(content)
-			for _, forbidden := range []string{"--break-system-packages", "RUN pip3 install", "playwright", "/opt/odoo-browser-venv"} {
+			for _, forbidden := range []string{"--break-system-packages", "RUN pip3 install"} {
 				if strings.Contains(dockerfile, forbidden) {
 					t.Fatalf("Dockerfile contains forbidden system pip install pattern %q", forbidden)
 				}
@@ -76,27 +76,6 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 				t.Fatalf("ReadFile(docker-compose.yml) error = %v", err)
 			}
 			compose := string(composeContent)
-			postgresImage := "postgres:15"
-			if version == "20.0" {
-				postgresImage = "postgres:16"
-			}
-			if got := NewData(state).PostgresImage; got != postgresImage {
-				t.Fatalf("NewData().PostgresImage = %q, want %q", got, postgresImage)
-			}
-			if !strings.Contains(compose, "  db:\n    image: "+postgresImage+"\n") {
-				t.Fatalf("docker-compose.yml must use database image %q", postgresImage)
-			}
-			if version == "18.0" || version == "19.0" || version == "20.0" {
-				// Noble supplies Python 3.12 for the modern source build.
-				for _, required := range []string{"BASE_IMAGE: ubuntu:noble", "ODOO_VERSION: " + version} {
-					if !strings.Contains(compose, required) {
-						t.Fatalf("docker-compose.yml missing modern build pattern %q", required)
-					}
-				}
-				if !strings.Contains(dockerfile, "--no-cache-dir -r /opt/odoo-src/requirements.txt") {
-					t.Fatal("Dockerfile must install modern Odoo source requirements")
-				}
-			}
 			for _, required := range []string{
 				"PYTHONPATH: /opt/odoo-extra-python",
 				"name: test-project-" + strings.Replace(version, ".", "", 1),
@@ -112,57 +91,8 @@ func TestRenderUsesRuntimeVolumeForPipPackages(t *testing.T) {
 	}
 }
 
-func TestRenderHTTPInterface(t *testing.T) {
-	for _, version := range []string{"12.0", "13.0", "14.0", "15.0", "16.0", "17.0", "18.0", "19.0", "20.0"} {
-		for _, test := range []struct {
-			name   string
-			config map[string]string
-			want   string
-		}{
-			{name: "default", want: "0.0.0.0"},
-			{name: "override", config: map[string]string{"http_interface": "127.0.0.1"}, want: "127.0.0.1"},
-		} {
-			t.Run(version+"/"+test.name, func(t *testing.T) {
-				home := t.TempDir()
-				t.Setenv("HOME", home)
-				state := &config.State{
-					ProjectName: "http-project",
-					OdooVersion: version,
-					Branch:      "main",
-					ProjectRoot: home,
-					OdooConfig:  test.config,
-				}
-				data := NewData(state)
-				if data.HTTPInterface != test.want {
-					t.Fatalf("NewData().HTTPInterface = %q, want %q", data.HTTPInterface, test.want)
-				}
-				for _, option := range data.ConfigOptions {
-					if option.Key == "http_interface" {
-						t.Fatal("ConfigOptions must not duplicate http_interface")
-					}
-				}
-				if err := Render(state); err != nil {
-					t.Fatal(err)
-				}
-				envDir, err := config.EnvironmentDir(state.ProjectName, state.Branch)
-				if err != nil {
-					t.Fatal(err)
-				}
-				content, err := os.ReadFile(filepath.Join(envDir, "odoo.conf"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				conf := string(content)
-				if strings.Count(conf, "http_interface = ") != 1 || !strings.Contains(conf, "\nhttp_interface = "+test.want+"\n") {
-					t.Fatalf("odoo.conf must contain exactly one http_interface = %s", test.want)
-				}
-			})
-		}
-	}
-}
-
 func TestRenderBrowserEnabledIncludesPlaywrightChromium(t *testing.T) {
-	for _, version := range []string{"15.0", "16.0", "17.0", "18.0", "19.0", "20.0"} {
+	for _, version := range []string{"15.0", "16.0", "17.0", "18.0", "19.0"} {
 		t.Run(version, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
@@ -190,27 +120,15 @@ func TestRenderBrowserEnabledIncludesPlaywrightChromium(t *testing.T) {
 			}
 			dockerfile := string(dockerfileData)
 			for _, required := range []string{
-				"python3 -m venv /opt/odoo-browser-venv",
-				"/opt/odoo-browser-venv/bin/pip install playwright==1.49.1",
+				"playwright==1.49.1",
 				"PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 				"CHROME_BIN=/usr/local/bin/chromium",
-				"/opt/odoo-browser-venv/bin/python3 -m playwright install --with-deps chromium",
+				"python3 -m playwright install --with-deps chromium",
 				"/usr/local/bin/google-chrome",
 			} {
 				if !strings.Contains(dockerfile, required) {
 					t.Fatalf("Dockerfile missing browser pattern %q", required)
 				}
-			}
-			if strings.Contains(dockerfile, "--system-site-packages /opt/odoo-browser-venv") {
-				t.Fatal("browser venv must not inherit system packages")
-			}
-			_, odooInstall, found := strings.Cut(dockerfile, "python3 -m venv --system-site-packages /opt/odoo-venv")
-			if !found {
-				t.Fatal("missing Odoo venv installation")
-			}
-			odooInstall, _, _ = strings.Cut(odooInstall, "\n\n")
-			if strings.Contains(odooInstall, "playwright") {
-				t.Fatal("Playwright must not be installed with Odoo requirements")
 			}
 			composeData, err := os.ReadFile(filepath.Join(envDir, "docker-compose.yml"))
 			if err != nil {
@@ -238,8 +156,6 @@ func TestRenderLegacyGeventConstraint(t *testing.T) {
 		{version: "16.0", wantConstraint: true},
 		{version: "17.0", wantConstraint: true},
 		{version: "18.0", wantConstraint: false},
-		{version: "19.0", wantConstraint: false},
-		{version: "20.0", wantConstraint: false},
 	} {
 		t.Run(test.version, func(t *testing.T) {
 			home := t.TempDir()

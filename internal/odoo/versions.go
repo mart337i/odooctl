@@ -3,7 +3,6 @@ package odoo
 import "strings"
 
 var OdooVersions = []string{
-	"20.0",
 	"19.0",
 	"18.0",
 	"17.0",
